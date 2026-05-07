@@ -1,0 +1,14 @@
+{"timestamp":"00:00:05.708","source":"Server","level":"LOG","message":"It looks like you're trying to use TypeScript but do not have the required package(s) installed.\nInstalling dependencies\n\nIf you are not trying to use TypeScript, please remove the tsconfig.json file from your package root (and any TypeScript files in your app and pages directories).\n"}
+{"timestamp":"00:00:05.853","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:05.853","source":"Server","level":"LOG","message":"Installing devDependencies (npm):"}
+{"timestamp":"00:00:05.854","source":"Server","level":"LOG","message":"- typescript"}
+{"timestamp":"00:00:05.855","source":"Server","level":"LOG","message":"- @types/react"}
+{"timestamp":"00:00:05.855","source":"Server","level":"LOG","message":"- @types/node"}
+{"timestamp":"00:00:05.855","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:14.142","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:14.166","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:14.166","source":"Server","level":"LOG","message":"  We detected TypeScript in your project and created a tsconfig.json file for you."}
+{"timestamp":"00:00:14.757","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:55.888","source":"Server","level":"WARN","message":"⚠ Your page app/page.tsx did not have a root layout. We created app/layout.tsx for you."}
+{"timestamp":"00:00:58.933","source":"Server","level":"LOG","message":"○ Compiling / ..."}
+{"timestamp":"00:01:35.431","source":"Browser","level":"INFO","message":"%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold"}
