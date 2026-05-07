@@ -2,175 +2,167 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Lock, Unlock, Banknote, 
-  ArrowUpRight, ArrowDownLeft, FileText, CheckCircle, X, LogOut 
+  ShoppingCart, Settings, Printer, Store, 
+  MapPin, Phone, MessageSquare, CheckCircle, Trash2, X 
 } from 'lucide-react';
 
-// 1. 資料庫結構：加入班次與現金變動紀錄 (對標 Ch 7.6)
-const db = new Dexie('VentusPOS_V11');
+// 1. 資料庫結構：加入系統設置表
+const db = new Dexie('VentusPOS_V12');
 db.version(1).stores({
-  shifts: '++id, openedAt, closedAt, startingCash, actualCash, status',
-  cashMovements: '++id, shiftId, type, amount, reason, timestamp',
-  receipts: '++id, shiftId, total, paymentMethod, status'
+  receipts: '++id, timestamp, total, items',
+  settings: 'key, value'
 });
 
-export default function ShiftPOS() {
-  const [currentShift, setCurrentShift] = useState(null);
-  const [startingCashInput, setStartingCashInput] = useState('');
-  const [actualCashInput, setActualCashInput] = useState('');
-  const [isClosingShift, setIsClosingShift] = useState(false);
-  const [shiftStats, setShiftStats] = useState({ cashSales: 0, paidIn: 0, paidOut: 0 });
+export default function BrandedPOS() {
+  const [view, setView] = useState('pos'); // 'pos' 或 'settings'
+  const [cart, setCart] = useState([]);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [lastReceipt, setLastReceipt] = useState(null);
+  
+  // 店鋪設置狀態 (對標 Ch 2.8)
+  const [shopSettings, setShopSettings] = useState({
+    name: 'VENTUS CAFE',
+    address: '台北市信義區忠孝東路五段',
+    phone: '02-2345-6789',
+    footer: '謝謝惠顧，歡迎再次光臨！'
+  });
 
-  // 1:1 複刻班次檢查邏輯
   useEffect(() => {
-    const checkShift = async () => {
-      const active = await db.shifts.where('status').equals('OPEN').first();
-      if (active) {
-        setCurrentShift(active);
-        // 計算該班次的即時數據
-        const cashSales = await db.receipts.where('shiftId').equals(active.id).and(r => r.paymentMethod === '現金' && r.status === 'COMPLETED').toArray();
-        const movements = await db.cashMovements.where('shiftId').equals(active.id).toArray();
-        
-        setShiftStats({
-          cashSales: cashSales.reduce((a, b) => a + b.total, 0),
-          paidIn: movements.filter(m => m.type === 'IN').reduce((a, b) => a + b.amount, 0),
-          paidOut: movements.filter(m => m.type === 'OUT').reduce((a, b) => a + b.amount, 0)
-        });
-      } else {
-        setCurrentShift(null);
-      }
+    const loadSettings = async () => {
+      const saved = await db.settings.get('shop_info');
+      if (saved) setShopSettings(saved.value);
     };
-    checkShift();
-  }, [isClosingShift]);
+    loadSettings();
+  }, [view]);
 
-  const handleOpenShift = async () => {
-    const cash = parseFloat(startingCashInput) || 0;
-    const id = await db.shifts.add({
-      openedAt: new Date().toISOString(),
-      startingCash: cash,
-      status: 'OPEN'
-    });
-    setStartingCashInput('');
-    setCurrentShift({ id, startingCash: cash, status: 'OPEN' });
+  const saveSettings = async (newSettings) => {
+    setShopSettings(newSettings);
+    await db.settings.put({ key: 'shop_info', value: newSettings });
+    alert('設置已更新！');
   };
 
-  const handleCloseShift = async () => {
-    const actual = parseFloat(actualCashInput) || 0;
-    await db.shifts.update(currentShift.id, {
-      closedAt: new Date().toISOString(),
-      actualCash: actual,
-      status: 'CLOSED'
-    });
-    setActualCashInput('');
-    setIsClosingShift(false);
-    setCurrentShift(null);
-    alert('班次已關閉，財務審計紀錄已存檔。');
+  const handleCharge = async () => {
+    if (cart.length === 0) return;
+    const receipt = {
+      timestamp: new Date().toISOString(),
+      items: [...cart],
+      total: cart.reduce((a, c) => a + c.price * c.qty, 0),
+      shop: { ...shopSettings }
+    };
+    await db.receipts.add(receipt);
+    setLastReceipt(receipt);
+    setIsReceiptOpen(true);
+    setCart([]);
   };
-
-  const expectedCash = currentShift ? 
-    currentShift.startingCash + shiftStats.cashSales + shiftStats.paidIn - shiftStats.paidOut : 0;
-
-  // --- 開班畫面 ---
-  if (!currentShift) {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col items-center justify-center text-white p-6">
-        <Lock size={64} className="text-yellow-500 mb-6" />
-        <h1 className="text-4xl font-black italic mb-2">POS 班次鎖定</h1>
-        <p className="text-slate-400 mb-10 text-center">開始收銀前，請先輸入抽屜內的開班備用金 (Starting Cash)</p>
-        <div className="w-full max-w-sm">
-          <input 
-            type="number" 
-            placeholder="輸入開班金額..." 
-            className="w-full p-6 bg-slate-800 rounded-3xl text-3xl font-bold text-center mb-6 outline-none border-2 border-transparent focus:border-blue-500"
-            value={startingCashInput}
-            onChange={(e) => setStartingCashInput(e.target.value)}
-          />
-          <button onClick={handleOpenShift} className="w-full py-5 bg-blue-600 rounded-3xl font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
-            開班 (OPEN SHIFT)
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="flex h-screen bg-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
       {/* 側邊導航 */}
       <div className="w-20 bg-slate-900 flex flex-col items-center py-8 space-y-10 text-white shadow-2xl">
-        <div className="bg-blue-600 p-3 rounded-2xl"><ShoppingCart size={28} /></div>
-        <button onClick={() => setIsClosingShift(true)} className="text-slate-500 hover:text-white"><FileText size={28} /></button>
-        <div className="mt-auto text-slate-500"><LogOut size={28} /></div>
+        <button onClick={() => setView('pos')} className={`p-3 rounded-2xl ${view === 'pos' ? 'bg-blue-600 shadow-lg shadow-blue-500/50' : 'text-slate-500'}`}><ShoppingCart size={28} /></button>
+        <button onClick={() => setView('settings')} className={`p-3 rounded-2xl ${view === 'settings' ? 'bg-blue-600 shadow-lg shadow-blue-500/50' : 'text-slate-500'}`}><Settings size={28} /></button>
+        <div className="mt-auto text-slate-500"><Printer size={28} /></div>
       </div>
 
-      <div className="flex-1 flex flex-col">
-        <header className="h-20 bg-white border-b px-8 flex items-center justify-between shadow-sm">
-          <div className="flex flex-col">
-            <h2 className="font-black text-2xl text-slate-800">銷售畫面</h2>
-            <span className="text-xs font-bold text-green-500 uppercase tracking-widest">● 班次運行中</span>
+      {view === 'pos' ? (
+        <div className="flex-1 flex">
+          {/* POS 銷售介面 */}
+          <div className="flex-1 p-6 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
+            {[
+              { id: 1, name: '招牌拿鐵', price: 120 },
+              { id: 2, name: '手沖耶加', price: 160 },
+              { id: 3, name: '提拉米蘇', price: 150 }
+            ].map(p => (
+              <button key={p.id} onClick={() => setCart([...cart, {...p, qty: 1}])} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 active:scale-95 text-left h-44 flex flex-col justify-between">
+                <span className="font-black text-2xl tracking-tighter">{p.name}</span>
+                <span className="text-blue-600 font-black text-3xl font-mono">$ {p.price}</span>
+              </button>
+            ))}
           </div>
-          <div className="bg-slate-100 px-6 py-2 rounded-2xl flex items-center">
-            <Banknote size={18} className="mr-2 text-slate-400" />
-            <span className="text-sm font-bold text-slate-600">預期現金: $ {expectedCash}</span>
-          </div>
-        </header>
 
-        {/* 商品區略 (與前幾版一致) */}
-        <div className="flex-1 p-10 flex items-center justify-center text-slate-300 italic font-bold">
-          [ 點擊商品並進行收銀，產生的現金銷售將計入此班次 ]
+          {/* 結帳側欄 */}
+          <div className="w-96 bg-white border-l shadow-2xl flex flex-col">
+            <div className="p-8 border-b bg-slate-50">
+              <h2 className="text-xl font-black italic tracking-tighter">{shopSettings.name}</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {cart.map((item, idx) => (
+                <div key={idx} className="flex justify-between p-4 bg-slate-50 rounded-2xl font-bold">
+                  <span>{item.name} x1</span>
+                  <span>$ {item.price}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-8 bg-slate-900 text-white rounded-t-[50px]">
+              <div className="flex justify-between text-4xl font-black mb-8">
+                <span>總額</span><span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price,0)}</span>
+              </div>
+              <button onClick={handleCharge} className="w-full py-6 bg-blue-600 rounded-3xl font-black text-2xl active:scale-95 transition-all">確認收款</button>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 p-12 bg-white overflow-y-auto">
+          {/* 店鋪設置介面 (對標 Ch 2.8) */}
+          <div className="max-w-2xl mx-auto space-y-10">
+            <h1 className="text-4xl font-black tracking-tighter italic">店鋪與收據設置</h1>
+            
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">店鋪名稱</label>
+                <input className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none text-lg font-bold" 
+                  value={shopSettings.name} onChange={(e) => setShopSettings({...shopSettings, name: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">店鋪地址</label>
+                <input className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-bold" 
+                  value={shopSettings.address} onChange={(e) => setShopSettings({...shopSettings, address: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">聯絡電話</label>
+                <input className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-bold font-mono" 
+                  value={shopSettings.phone} onChange={(e) => setShopSettings({...shopSettings, phone: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">收據腳註 (Footer)</label>
+                <textarea className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-bold h-32" 
+                  value={shopSettings.footer} onChange={(e) => setShopSettings({...shopSettings, footer: e.target.value})} />
+              </div>
+              <button onClick={() => saveSettings(shopSettings)} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl">保存所有設置</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* 結班 Z-Report 彈窗 (對標 Ch 7.6) */}
-      {isClosingShift && (
-        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-lg rounded-[48px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-300">
-            <div className="p-10 border-b flex justify-between items-center bg-slate-50">
-              <h3 className="text-3xl font-black italic tracking-tighter">班次結算報告 (Z-Report)</h3>
-              <button onClick={() => setIsClosingShift(false)}><X size={32}/></button>
+      {/* 專業熱敏收據預覽彈窗 */}
+      {isReceiptOpen && lastReceipt && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-xs rounded-lg shadow-2xl p-6 font-mono text-xs overflow-hidden animate-in slide-in-from-bottom duration-300">
+            <div className="text-center space-y-1 mb-6">
+              <h3 className="text-xl font-bold uppercase">{lastReceipt.shop.name}</h3>
+              <p>{lastReceipt.shop.address}</p>
+              <p>TEL: {lastReceipt.shop.phone}</p>
+              <div className="border-b-2 border-dashed border-slate-200 pt-4"></div>
             </div>
             
-            <div className="p-10 space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-6 bg-slate-50 rounded-3xl">
-                  <span className="text-xs font-bold text-slate-400 block mb-2 uppercase">開班備用金</span>
-                  <span className="text-2xl font-black text-slate-800">$ {currentShift.startingCash}</span>
+            <div className="space-y-2 mb-6">
+              {lastReceipt.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between">
+                  <span>{item.name} x{item.qty}</span>
+                  <span>{item.price * item.qty}</span>
                 </div>
-                <div className="p-6 bg-blue-50 rounded-3xl">
-                  <span className="text-xs font-bold text-blue-400 block mb-2 uppercase">現金銷售</span>
-                  <span className="text-2xl font-black text-blue-600">$ {shiftStats.cashSales}</span>
-                </div>
-              </div>
-
-              <div className="border-t-2 border-dashed border-slate-100 pt-6 space-y-4">
-                <div className="flex justify-between font-bold text-slate-600 px-2">
-                  <span>預期抽屜現金</span>
-                  <span className="font-mono text-xl">$ {expectedCash}</span>
-                </div>
-                <div className="bg-slate-900 p-8 rounded-[40px] text-white">
-                  <span className="text-xs font-bold opacity-60 block mb-3 uppercase text-center">結班實點金額 (Actual Cash)</span>
-                  <input 
-                    type="number"
-                    className="w-full bg-transparent text-center text-5xl font-black outline-none border-b-2 border-blue-500 pb-2 mb-4"
-                    value={actualCashInput}
-                    onChange={(e) => setActualCashInput(e.target.value)}
-                  />
-                  {actualCashInput && (
-                    <div className={`text-center font-bold ${(parseFloat(actualCashInput) - expectedCash) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      差異: $ {parseFloat(actualCashInput) - expectedCash}
-                    </div>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
 
-            <div className="p-10 pt-0">
-              <button 
-                onClick={handleCloseShift}
-                className="w-full py-6 bg-red-500 hover:bg-red-600 text-white rounded-3xl font-black text-2xl shadow-xl shadow-red-500/20 active:scale-95 transition-all"
-              >
-                關閉班次並登出
-              </button>
+            <div className="border-t-2 border-dashed border-slate-200 pt-4 space-y-1">
+              <div className="flex justify-between text-lg font-bold">
+                <span>TOTAL</span><span>$ {lastReceipt.total}</span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-4 text-center">--- {new Date(lastReceipt.timestamp).toLocaleString()} ---</p>
+              <p className="mt-4 text-center italic">{lastReceipt.shop.footer}</p>
             </div>
+
+            <button onClick={() => setIsReceiptOpen(false)} className="w-full mt-8 py-3 bg-slate-900 text-white rounded-lg font-bold text-sm">關閉預覽</button>
           </div>
         </div>
       )}
