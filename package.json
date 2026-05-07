@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@awesome-cordova-plugins/printer": "^9.1.4",
     "@capacitor-mlkit/barcode-scanning": "^8.0.1",
     "@capacitor/android": "^8.3.1",
     "@capacitor/cli": "^8.3.1",

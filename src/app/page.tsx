@@ -2,112 +2,164 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Package, BarChart3, Settings, 
-  Smartphone, ShieldCheck, Zap, Star, Globe, Info
+  ShoppingCart, Printer, Bluetooth, Globe, 
+  Settings, CheckCircle, Wifi, RefreshCw, X, FileText 
 } from 'lucide-react';
 
-// 1. 最終版資料庫 (整合所有前幾階段功能)
-const db = new Dexie('VentusPOS_Final');
+// 1. 資料庫結構：儲存印表機配置
+const db = new Dexie('VentusPOS_V17');
 db.version(1).stores({
-  receipts: '++id, timestamp, total, status',
-  inventory: 'id, name, price, stock, sku'
+  receipts: '++id, timestamp, total, items',
+  printers: '++id, name, address, type' // type: 'bluetooth' or 'network'
 });
 
-export default function FinalProductionPOS() {
-  const [view, setView] = useState('pos');
-  const [isLoaded, setIsLoaded] = useState(false);
+export default function HardwarePOS() {
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printers, setPrinters] = useState([]);
+  const [showPrinterPanel, setShowPrinterPanel] = useState(false);
+  const [cart, setCart] = useState([]);
+  const [isCheckedOut, setIsCheckedOut] = useState(false);
 
   useEffect(() => {
-    // 模擬啟動性能優化加載
-    setTimeout(() => setIsLoaded(true), 800);
-  }, []);
+    const loadPrinters = async () => {
+      setPrinters(await db.printers.toArray());
+    };
+    loadPrinters();
+  }, [showPrinterPanel]);
 
-  if (!isLoaded) {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col items-center justify-center text-white">
-        <div className="w-20 h-20 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-        <h1 className="text-2xl font-black tracking-widest animate-pulse">VENTUS SYSTEM LOADING...</h1>
-      </div>
-    );
-  }
+  // 核心：ESC/POS 指令生成引擎 (對標 Ch 9.1)
+  const generatePrintData = (receipt) => {
+    let esc = "\x1B\x40"; // 初始化印表機
+    esc += "\x1B\x61\x01"; // 居中對齊
+    esc += "\x1B\x21\x30" + "VENTUS PRO POS\n"; // 倍高倍寬
+    esc += "\x1B\x21\x00" + "--------------------------------\n";
+    
+    receipt.items.forEach(item => {
+      esc += "\x1B\x61\x00"; // 左對齊
+      esc += `${item.name.padEnd(20)} ${item.price}\n`;
+    });
+    
+    esc += "\x1B\x61\x01" + "--------------------------------\n";
+    esc += "\x1B\x21\x10" + `TOTAL: $ ${receipt.total}\n`;
+    esc += "\x1B\x61\x01" + "\n謝謝惠顧\n\n\n\x1D\x56\x41\x03"; // 切紙指令
+    return esc;
+  };
+
+  const handleCharge = async () => {
+    if (cart.length === 0) return;
+    const total = cart.reduce((a, c) => a + c.price, 0);
+    const receipt = { timestamp: new Date().toISOString(), items: [...cart], total };
+    
+    setIsPrinting(true);
+    // 模擬與硬體通訊
+    setTimeout(async () => {
+      console.log("發送 ESC/POS 數據:", generatePrintData(receipt));
+      await db.receipts.add(receipt);
+      setIsPrinting(false);
+      setIsCheckedOut(true);
+      setCart([]);
+    }, 1500);
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      {/* 專業側邊導航 (最終工藝) */}
-      <div className="w-24 bg-slate-950 flex flex-col items-center py-10 space-y-12 text-white shadow-[10px_0_30px_rgba(0,0,0,0.1)] z-20">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-4 rounded-[24px] shadow-lg shadow-blue-500/50">
-          <ShoppingCart size={32} />
-        </div>
-        <button onClick={() => setView('pos')} className="text-slate-500 hover:text-white transition-all"><Package size={32} /></button>
-        <button onClick={() => setView('stats')} className="text-slate-500 hover:text-white transition-all"><BarChart3 size={32} /></button>
-        <button onClick={() => setView('settings')} className="text-slate-500 hover:text-white transition-all"><Settings size={32} /></button>
-        
-        <div className="mt-auto flex flex-col items-center space-y-6">
-          <div className="text-blue-500/30 font-black text-xs rotate-90 mb-4 tracking-tighter uppercase">Ver 16.0</div>
-          <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-            <ShieldCheck size={24} className="text-green-500" />
-          </div>
-        </div>
+    <div className="flex h-screen bg-slate-900 text-white font-sans overflow-hidden">
+      {/* 側邊導航 */}
+      <div className="w-24 bg-black flex flex-col items-center py-10 space-y-12">
+        <div className="bg-blue-600 p-4 rounded-3xl shadow-lg"><ShoppingCart size={32} /></div>
+        <button onClick={() => setShowPrinterPanel(true)} className="text-slate-500 hover:text-white transition-all">
+          <Printer size={32} />
+        </button>
+        <div className="mt-auto text-slate-500"><Settings size={32} /></div>
       </div>
 
-      <div className="flex-1 flex flex-col relative">
-        <header className="h-24 bg-white/80 backdrop-blur-md border-b px-12 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex flex-col">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tighter italic">VENTUS PRO <span className="text-blue-600">POS</span></h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Enterprise Production Build</p>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col items-end">
-              <span className="text-xs font-black text-slate-400">SYSTEM STATUS</span>
-              <span className="text-sm font-bold text-green-500 flex items-center"><Zap size={14} className="mr-1 fill-current"/> ENCRYPTED & ONLINE</span>
-            </div>
+      <div className="flex-1 flex flex-col bg-slate-50 text-slate-900">
+        <header className="h-24 bg-white border-b px-12 flex items-center justify-between shadow-sm">
+          <h1 className="text-3xl font-black italic tracking-tighter">VENTUS <span className="text-blue-600">HARDWARE</span></h1>
+          <div className="flex items-center gap-4">
+             <div className="flex items-center text-xs font-bold text-green-500 bg-green-50 px-4 py-2 rounded-full border border-green-100">
+               <Wifi size={14} className="mr-2" /> PRINTER ONLINE
+             </div>
           </div>
         </header>
 
-        <main className="flex-1 p-10 overflow-y-auto">
-          {view === 'pos' ? (
-            <div className="max-w-6xl mx-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {/* 展示商品卡片的極致美學 */}
-                {[
-                  { id:1, name: '旗艦黑咖啡', price: 120 },
-                  { id:2, name: '精品藍山', price: 280 },
-                  { id:3, name: '莊園拿鐵', price: 150 }
-                ].map(p => (
-                  <div key={p.id} className="group bg-white p-8 rounded-[50px] shadow-[0_10px_40px_rgba(0,0,0,0.02)] border border-slate-100 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-500 cursor-pointer">
-                    <div className="flex justify-between items-start mb-10">
-                      <div className="w-16 h-16 bg-slate-50 rounded-[20px] flex items-center justify-center group-hover:bg-blue-50 transition-colors">
-                        <Star size={28} className="text-slate-200 group-hover:text-blue-500 transition-colors" />
-                      </div>
-                      <span className="bg-slate-100 text-slate-400 text-[10px] font-black px-3 py-1 rounded-full">INSTOCK</span>
-                    </div>
-                    <h3 className="text-2xl font-black text-slate-800 mb-2">{p.name}</h3>
-                    <div className="flex justify-between items-end">
-                      <span className="text-3xl font-black text-blue-600 font-mono">$ {p.price}</span>
-                      <button className="bg-slate-900 text-white p-4 rounded-2xl hover:bg-blue-600 transition-all active:scale-90">
-                        <ShoppingCart size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-slate-300">
-               <Globe size={80} className="mb-6 opacity-20" />
-               <p className="text-xl font-bold italic tracking-widest opacity-20">DASHBOARD MODULE ACTIVE</p>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {/* 底部浮動信息 (對標高級 App) */}
-      <div className="fixed bottom-6 right-6 flex items-center gap-4 bg-white/90 backdrop-blur-lg border p-2 pl-6 rounded-full shadow-2xl">
-        <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase">Hardware Ready</span>
-        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-blue-500/40">
-          <Info size={20} />
+        <div className="flex-1 p-10 grid grid-cols-2 lg:grid-cols-3 gap-8 overflow-y-auto">
+          {[ {id:1, name:'藍山精品', price:280}, {id:2, name:'招牌咖啡', price:120} ].map(p => (
+            <button key={p.id} onClick={() => setCart([...cart, p])} className="bg-white p-8 rounded-[48px] shadow-sm border-2 border-transparent active:border-blue-500 flex flex-col justify-between h-48 transition-all">
+              <span className="font-black text-2xl">{p.name}</span>
+              <span className="text-blue-600 font-black text-3xl font-mono">$ {p.price}</span>
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* 結帳側欄 */}
+      <div className="w-[450px] bg-white border-l shadow-2xl flex flex-col text-slate-900">
+        <div className="p-10 border-b flex justify-between items-center bg-slate-50">
+          <h2 className="font-black text-2xl italic tracking-tighter">單據明細</h2>
+          {isPrinting && <RefreshCw className="animate-spin text-blue-600" />}
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {cart.map((item, i) => (
+            <div key={i} className="p-5 bg-white rounded-3xl border border-slate-100 font-bold flex justify-between shadow-sm">
+              <span>{item.name}</span><span>$ {item.price}</span>
+            </div>
+          ))}
+        </div>
+        <div className="p-10 bg-slate-950 text-white rounded-t-[60px]">
+          <div className="flex justify-between text-5xl font-black mb-10 tracking-tighter">
+            <span>總額</span><span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price,0)}</span>
+          </div>
+          <button 
+            onClick={handleCharge} 
+            disabled={isPrinting}
+            className={`w-full py-7 rounded-[30px] font-black text-2xl shadow-xl transition-all ${isPrinting ? 'bg-slate-700' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20 active:scale-95'}`}
+          >
+            {isPrinting ? '正在列印...' : '結帳並列印'}
+          </button>
+        </div>
+      </div>
+
+      {/* 印表機設置彈窗 (對標 Ch 2.8) */}
+      {showPrinterPanel && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-2xl rounded-[60px] shadow-2xl overflow-hidden animate-in zoom-in duration-300 text-slate-900">
+            <div className="p-10 border-b bg-slate-50 flex justify-between items-center">
+              <h3 className="text-3xl font-black italic tracking-tighter">硬體連結中心</h3>
+              <button onClick={() => setShowPrinterPanel(false)}><X size={32}/></button>
+            </div>
+            <div className="p-10 space-y-8">
+              <div className="grid grid-cols-2 gap-6">
+                <button className="p-8 bg-blue-50 border-2 border-blue-500 rounded-[40px] flex flex-col items-center gap-4">
+                  <Bluetooth size={48} className="text-blue-600" />
+                  <span className="font-black text-xl">藍牙印表機</span>
+                </button>
+                <button className="p-8 bg-slate-50 border-2 border-transparent rounded-[40px] flex flex-col items-center gap-4 opacity-50">
+                  <Wifi size={48} className="text-slate-600" />
+                  <span className="font-black text-xl">網路印表機</span>
+                </button>
+              </div>
+              <div className="bg-slate-100 p-8 rounded-[40px]">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">搜尋到的設備</h4>
+                <div className="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <FileText size={20} className="text-blue-500" />
+                    <span className="font-bold">Thermal Printer 58mm</span>
+                  </div>
+                  <span className="text-[10px] bg-green-500 text-white px-2 py-1 rounded-full font-black">已連線</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isCheckedOut && (
+        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
+          <CheckCircle size={150} className="mb-10 animate-bounce" />
+          <h1 className="text-6xl font-black mb-10 text-center tracking-tighter">支付成功！<br/><span className="text-2xl opacity-70">收據已自動派送至印表機</span></h1>
+          <button onClick={() => setIsCheckedOut(false)} className="px-20 py-6 bg-white text-blue-600 rounded-[35px] font-black text-3xl shadow-2xl">下一筆</button>
+        </div>
+      )}
     </div>
   );
 }
