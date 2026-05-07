@@ -16,19 +16,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install Dependencies
-        run: |
-          npm install
-          npm install -g @next/bundle-analyzer @capacitor/cli @capacitor/android
+        run: npm install
 
-      - name: Build Web Assets (Next.js Static Export)
-        run: |
-          npx next build
-          # 注意：Capacitor 需要靜態輸出，Next.js 14+ 通常在 .next 或 out
-          # 如果沒有 out 資料夾，我們手動建立一個
-          mkdir -p out
+      - name: Build Web Assets
+        run: npm run build
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -37,8 +30,7 @@ jobs:
           java-version: '17'
 
       - name: Sync Capacitor
-        run: |
-          npx cap sync android || (mkdir -p android && npx cap add android && npx cap sync android)
+        run: npx cap sync android || (npx cap add android && npx cap sync android)
 
       - name: Build Android APK
         run: |
@@ -46,9 +38,8 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK (FORCE V4)
         uses: actions/upload-artifact@v4
         with:
-          name: ventus-pro-v23-apk
+          name: ventus-pro-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
