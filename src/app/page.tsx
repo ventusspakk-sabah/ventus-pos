@@ -1,148 +1,205 @@
 "use client";
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Utensils, Clock, CheckCircle2, 
-  Timer, ChevronRight, LayoutDashboard, Bell, X, Trash2
+  ShoppingCart, Globe, ChevronRight, CheckCircle, 
+  Settings, Package, BarChart3, Languages, X, Trash2 
 } from 'lucide-react';
 
-// 1. 資料庫結構：加入訂單狀態欄位 (對標 Ch 9.2)
-const db = new Dexie('VentusPOS_V19');
+// 1. 翻譯字典 (對標國際化專業規範)
+const i18n = {
+  zh: {
+    shop_name: "VENTUS 專業收銀",
+    pos: "銷售模式",
+    inventory: "庫存管理",
+    total: "總計金額",
+    charge: "確認收款",
+    sync: "雲端同步",
+    language: "切換語言",
+    items: "商品明細",
+    success: "交易成功",
+    next: "下一筆交易"
+  },
+  en: {
+    shop_name: "VENTUS PRO POS",
+    pos: "Sales Mode",
+    inventory: "Inventory",
+    total: "Total Amount",
+    charge: "Charge Now",
+    sync: "Cloud Sync",
+    language: "Language",
+    items: "Order Items",
+    success: "Success!",
+    next: "Next Sale"
+  }
+};
+
+const db = new Dexie('VentusPOS_V20');
 db.version(1).stores({
-  orders: '++id, timestamp, items, total, status, waitTime', // status: 'pending', 'preparing', 'ready'
+  settings: 'key, value',
+  receipts: '++id, total, timestamp'
 });
 
-export default function KitchenPOS() {
-  const [view, setView] = useState('pos'); // 'pos' 或 'kds'
-  const [orders, setOrders] = useState([]);
+export default function I18nPOS() {
+  const [lang, setLang] = useState('zh');
+  const 
+git push origin main
+cat <<EOF > src/app/page.tsx
+"use client";
+import React, { useState, useEffect } from 'react';
+import Dexie from 'dexie';
+import { 
+  ShoppingCart, Globe, ChevronRight, CheckCircle, 
+  Settings, Package, BarChart3, Languages, X, Trash2 
+} from 'lucide-react';
+
+// 1. 翻譯字典 (對標國際化專業規範)
+const i18n = {
+  zh: {
+    shop_name: "VENTUS 專業收銀",
+    pos: "銷售模式",
+    inventory: "庫存管理",
+    total: "總計金額",
+    charge: "確認收款",
+    sync: "雲端同步",
+    language: "切換語言",
+    items: "商品明細",
+    success: "交易成功",
+    next: "下一筆交易"
+  },
+  en: {
+    shop_name: "VENTUS PRO POS",
+    pos: "Sales Mode",
+    inventory: "Inventory",
+    total: "Total Amount",
+    charge: "Charge Now",
+    sync: "Cloud Sync",
+    language: "Language",
+    items: "Order Items",
+    success: "Success!",
+    next: "Next Sale"
+  }
+};
+
+const db = new Dexie('VentusPOS_V20');
+db.version(1).stores({
+  settings: 'key, value',
+  receipts: '++id, total, timestamp'
+});
+
+export default function I18nPOS() {
+  const [lang, setLang] = useState('zh');
   const [cart, setCart] = useState([]);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
-  // 定時刷新：讓廚房看到最新訂單並更新等待時間
+  // 語系持久化讀取
   useEffect(() => {
-    const fetchOrders = async () => {
-      const allOrders = await db.orders.toArray();
-      setOrders(allOrders);
+    const loadLang = async () => {
+      const saved = await db.settings.get('app_lang');
+      if (saved) setLang(saved.value);
     };
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 3000);
-    return () => clearInterval(interval);
-  }, [view, isCheckedOut]);
+    loadLang();
+  }, []);
 
-  const handleCharge = async () => {
-    if (cart.length === 0) return;
-    await db.orders.add({
-      timestamp: new Date().toISOString(),
-      items: JSON.stringify(cart),
-      total: cart.reduce((a, c) => a + c.price, 0),
-      status: 'pending'
-    });
-    setIsCheckedOut(true);
-    setCart([]);
+  const toggleLang = async () => {
+    const newLang = lang === 'zh' ? 'en' : 'zh';
+    setLang(newLang);
+    await db.settings.put({ key: 'app_lang', value: newLang });
   };
 
-  const updateStatus = async (id, newStatus) => {
-    await db.orders.update(id, { status: newStatus });
-    setOrders(await db.orders.toArray());
-  };
+  // 翻譯輔助函式
+  const t = (key) => i18n[lang][key] || key;
 
   return (
-    <div className="flex h-screen bg-slate-950 text-white font-sans overflow-hidden">
-      {/* 側邊切換欄 (對標專業 KDS 介面) */}
-      <div className="w-24 bg-black flex flex-col items-center py-10 space-y-12 shadow-[5px_0_30px_rgba(0,0,0,0.5)] z-20">
-        <button onClick={() => setView('pos')} className={`p-4 rounded-[24px] transition-all ${view === 'pos' ? 'bg-blue-600 shadow-lg shadow-blue-500/50' : 'text-slate-600'}`}>
-          <ShoppingCart size={32} />
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* 側邊導覽列 */}
+      <div className="w-24 bg-slate-950 flex flex-col items-center py-10 space-y-12 text-white shadow-2xl">
+        <div className="bg-blue-600 p-4 rounded-3xl shadow-lg"><ShoppingCart size={32} /></div>
+        <button onClick={toggleLang} className="text-slate-500 hover:text-blue-400 transition-all">
+          <Languages size={32} />
         </button>
-        <button onClick={() => setView('kds')} className={`p-4 rounded-[24px] transition-all ${view === 'kds' ? 'bg-orange-600 shadow-lg shadow-orange-500/50' : 'text-slate-600'}`}>
-          <Utensils size={32} />
-        </button>
-        <div className="mt-auto flex flex-col items-center gap-6">
-           <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 animate-pulse">
-             <Bell size={24} className="text-orange-400" />
-           </div>
-        </div>
+        <div className="mt-auto text-slate-500"><Settings size={32} /></div>
       </div>
 
-      <div className="flex-1 flex flex-col bg-slate-50 text-slate-900">
-        {view === 'pos' ? (
-          <div className="flex-1 flex">
-            {/* 收銀模式介面 */}
-            <div className="flex-1 p-8 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
-              {[ {id:1, name:'厚切豬排飯', price:180}, {id:2, name:'招牌咖啡', price:120} ].map(p => (
-                <button key={p.id} onClick={() => setCart([...cart, p])} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 h-44 flex flex-col justify-between text-left active:scale-95 transition-all">
-                  <span className="font-black text-2xl text-slate-800">{p.name}</span>
-                  <span className="text-blue-600 font-black text-2xl font-mono">$ {p.price}</span>
-                </button>
-              ))}
-            </div>
-            <div className="w-96 bg-white border-l shadow-2xl p-8 flex flex-col">
-              <h2 className="text-2xl font-black mb-8 italic tracking-tighter uppercase">New Ticket</h2>
-              <div className="flex-1 overflow-y-auto space-y-4">
-                {cart.map((item, i) => <div key={i} className="p-4 bg-slate-50 rounded-2xl font-bold flex justify-between"><span>{item.name}</span><span>$ {item.price}</span></div>)}
-              </div>
-              <button onClick={handleCharge} className="w-full mt-6 py-6 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl active:scale-95 transition-all">發送到廚房</button>
-            </div>
+      <div className="flex-1 flex flex-col">
+        {/* 頂部 Header */}
+        <header className="h-24 bg-white border-b px-12 flex items-center justify-between shadow-sm">
+          <div className="flex flex-col">
+            <h1 className="text-3xl font-black italic tracking-tighter text-slate-900">
+              {t('shop_name')}
+            </h1>
+            <span className="text-[10px] font-black text-blue-500 tracking-widest uppercase">
+              Global Edition v20
+            </span>
           </div>
-        ) : (
-          <div className="flex-1 p-8 bg-slate-900 overflow-hidden flex flex-col">
-            {/* KDS 廚房模式介面 (對標 Ch 9.2.1) */}
-            <header className="flex justify-between items-end mb-10">
-              <h1 className="text-4xl font-black text-white italic tracking-tighter">KDS <span className="text-orange-500">MONITOR</span></h1>
-              <div className="flex gap-4">
-                 <div className="bg-slate-800 px-6 py-2 rounded-full text-xs font-bold text-orange-400 border border-orange-500/30 uppercase tracking-widest">廚房系統運行中</div>
-              </div>
-            </header>
 
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto pb-10">
-              {orders.filter(o => o.status !== 'ready').map(order => (
-                <div key={order.id} className={`bg-white rounded-[40px] p-8 flex flex-col justify-between shadow-2xl border-l-[12px] ${order.status === 'preparing' ? 'border-orange-500' : 'border-blue-500'}`}>
-                  <div>
-                    <div className="flex justify-between items-start mb-6">
-                      <span className="font-black text-3xl">#00{order.id}</span>
-                      <div className="flex items-center text-slate-400 font-bold text-sm">
-                        <Clock size={16} className="mr-1" />
-                        {new Date(order.timestamp).toLocaleTimeString()}
-                      </div>
-                    </div>
-                    <div className="space-y-3 mb-8">
-                      {JSON.parse(order.items).map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-xl font-bold text-slate-700">
-                          <span>• {item.name}</span>
-                          <span className="text-slate-300">x1</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+          <div className="flex items-center gap-6">
+             <button 
+               onClick={toggleLang}
+               className="flex items-center gap-2 bg-slate-100 px-6 py-3 rounded-2xl font-black text-sm active:scale-95 transition-all"
+             >
+               <Globe size={18} className="text-blue-500" />
+               {lang === 'zh' ? 'ENGLISH' : '繁體中文'}
+             </button>
+          </div>
+        </header>
 
-                  <div className="flex gap-3">
-                    {order.status === 'pending' ? (
-                      <button 
-                        onClick={() => updateStatus(order.id, 'preparing')}
-                        className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
-                      >
-                        開始製作
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={() => updateStatus(order.id, 'ready')}
-                        className="flex-1 py-5 bg-green-500 text-white rounded-2xl font-black text-lg shadow-lg shadow-green-500/20 active:scale-95 transition-all"
-                      >
-                        完成出餐
-                      </button>
-                    )}
-                  </div>
+        <main className="flex-1 p-10 flex">
+          {/* 商品區展示簡化版 */}
+          <div className="flex-1 grid grid-cols-2 gap-8 pr-10">
+            {[1, 2].map(i => (
+              <button 
+                key={i} 
+                onClick={() => setCart([...cart, { id: i, name: i === 1 ? 'Latte' : 'Cake', price: 100 }])}
+                className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100 flex flex-col justify-between h-56 text-left hover:border-blue-500 transition-all"
+              >
+                <span className="font-black text-3xl">{i === 1 ? '拿鐵咖啡' : '精緻蛋糕'}</span>
+                <span className="text-blue-600 font-black text-4xl font-mono">$ 100</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 結帳側欄 (全語系連動) */}
+          <div className="w-[450px] bg-white rounded-[60px] shadow-2xl border flex flex-col overflow-hidden">
+            <div className="p-10 border-b bg-slate-50">
+              <h2 className="text-2xl font-black italic tracking-tighter uppercase">{t('items')}</h2>
+            </div>
+            
+            <div className="flex-1 p-6 overflow-y-auto space-y-4">
+              {cart.map((item, idx) => (
+                <div key={idx} className="flex justify-between p-5 bg-slate-100 rounded-3xl font-bold">
+                  <span>{item.name}</span><span>$ {item.price}</span>
                 </div>
               ))}
             </div>
+
+            <div className="p-10 bg-slate-950 text-white">
+              <div className="flex justify-between text-5xl font-black mb-10 tracking-tighter">
+                <span className="text-slate-500 text-2xl uppercase">{t('total')}</span>
+                <span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price,0)}</span>
+              </div>
+              <button 
+                onClick={() => setIsCheckedOut(true)}
+                className="w-full py-7 bg-blue-600 rounded-[35px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
+              >
+                {t('charge')}
+              </button>
+            </div>
           </div>
-        )}
+        </main>
       </div>
 
+      {/* 結帳成功 (語系連動彈窗) */}
       {isCheckedOut && (
         <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
-          <CheckCircle2 size={120} className="mb-6 animate-bounce" />
-          <h1 className="text-5xl font-black mb-10">單據已送往廚房</h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">返回收銀</button>
+          <CheckCircle size={150} className="mb-10 animate-bounce" />
+          <h1 className="text-7xl font-black mb-12 italic tracking-tighter">{t('success')}</h1>
+          <button 
+            onClick={() => {setIsCheckedOut(false); setCart([]);}} 
+            className="px-24 py-8 bg-white text-blue-600 rounded-[40px] font-black text-3xl shadow-2xl active:scale-95 transition-all"
+          >
+            {t('next')}
+          </button>
         </div>
       )}
     </div>
