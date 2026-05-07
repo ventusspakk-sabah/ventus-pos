@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  images: { unoptimized: true },
-  typescript: { ignoreBuildErrors: true }, // 跳過讓 Termux 崩潰的檢查
-  eslint: { ignoreDuringBuilds: true },
+  output: 'export', // 確保 Capacitor 能抓到靜態輸出
+  images: { unoptimized: true }
 };
 export default nextConfig;
