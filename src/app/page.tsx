@@ -2,162 +2,141 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Printer, Bluetooth, Globe, 
-  Settings, CheckCircle, Wifi, RefreshCw, X, FileText 
+  ShoppingCart, Cloud, CloudOff, CloudSync, 
+  Database, ShieldCheck, RefreshCw, Server, Wifi, Globe, Settings 
 } from 'lucide-react';
 
-// 1. 資料庫結構：儲存印表機配置
-const db = new Dexie('VentusPOS_V17');
+// 1. 資料庫結構：加入同步版本號 (對標 Ch 8.1)
+const db = new Dexie('VentusPOS_V18');
 db.version(1).stores({
-  receipts: '++id, timestamp, total, items',
-  printers: '++id, name, address, type' // type: 'bluetooth' or 'network'
+  receipts: '++id, timestamp, total, isSynced',
+  inventory: 'id, name, price, stock, lastUpdated',
 });
 
-export default function HardwarePOS() {
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [printers, setPrinters] = useState([]);
-  const [showPrinterPanel, setShowPrinterPanel] = useState(false);
-  const [cart, setCart] = useState([]);
+export default function CloudSyncPOS() {
+  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle', 'syncing', 'success', 'error'
+  const [pendingCount, setPendingCount] = useState(0);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
+  // 模擬檢查未同步數據
   useEffect(() => {
-    const loadPrinters = async () => {
-      setPrinters(await db.printers.toArray());
+    const checkSync = async () => {
+      const unsynced = await db.receipts.where('isSynced').equals(0).count();
+      setPendingCount(unsynced);
     };
-    loadPrinters();
-  }, [showPrinterPanel]);
+    checkSync();
+  }, [isCheckedOut, syncStatus]);
 
-  // 核心：ESC/POS 指令生成引擎 (對標 Ch 9.1)
-  const generatePrintData = (receipt) => {
-    let esc = "\x1B\x40"; // 初始化印表機
-    esc += "\x1B\x61\x01"; // 居中對齊
-    esc += "\x1B\x21\x30" + "VENTUS PRO POS\n"; // 倍高倍寬
-    esc += "\x1B\x21\x00" + "--------------------------------\n";
+  // 核心：雲端同步引擎 (對標 Ch 8.2)
+  const triggerSync = async () => {
+    setSyncStatus('syncing');
     
-    receipt.items.forEach(item => {
-      esc += "\x1B\x61\x00"; // 左對齊
-      esc += `${item.name.padEnd(20)} ${item.price}\n`;
-    });
-    
-    esc += "\x1B\x61\x01" + "--------------------------------\n";
-    esc += "\x1B\x21\x10" + `TOTAL: $ ${receipt.total}\n`;
-    esc += "\x1B\x61\x01" + "\n謝謝惠顧\n\n\n\x1D\x56\x41\x03"; // 切紙指令
-    return esc;
+    // 模擬網路延遲與 API 呼叫
+    setTimeout(async () => {
+      try {
+        const unsyncedReceipts = await db.receipts.where('isSynced').equals(0).toArray();
+        
+        // 這裡未來會接 fetch('https://your-api.com/sync', ...)
+        console.log("正在上傳數據至雲端...", unsyncedReceipts);
+        
+        // 標記為已同步
+        await db.receipts.where('isSynced').equals(0).modify({ isSynced: 1 });
+        
+        setSyncStatus('success');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      } catch (e) {
+        setSyncStatus('error');
+      }
+    }, 2000);
   };
 
   const handleCharge = async () => {
-    if (cart.length === 0) return;
-    const total = cart.reduce((a, c) => a + c.price, 0);
-    const receipt = { timestamp: new Date().toISOString(), items: [...cart], total };
-    
-    setIsPrinting(true);
-    // 模擬與硬體通訊
-    setTimeout(async () => {
-      console.log("發送 ESC/POS 數據:", generatePrintData(receipt));
-      await db.receipts.add(receipt);
-      setIsPrinting(false);
-      setIsCheckedOut(true);
-      setCart([]);
-    }, 1500);
+    await db.receipts.add({
+      timestamp: new Date().toISOString(),
+      total: 100, // 簡化展示
+      isSynced: 0
+    });
+    setIsCheckedOut(true);
   };
 
   return (
-    <div className="flex h-screen bg-slate-900 text-white font-sans overflow-hidden">
+    <div className="flex h-screen bg-slate-950 text-white font-sans overflow-hidden">
       {/* 側邊導航 */}
       <div className="w-24 bg-black flex flex-col items-center py-10 space-y-12">
-        <div className="bg-blue-600 p-4 rounded-3xl shadow-lg"><ShoppingCart size={32} /></div>
-        <button onClick={() => setShowPrinterPanel(true)} className="text-slate-500 hover:text-white transition-all">
-          <Printer size={32} />
+        <div className="bg-blue-600 p-4 rounded-3xl"><ShoppingCart size={32} /></div>
+        <button onClick={triggerSync} className={`p-4 rounded-3xl transition-all ${syncStatus === 'syncing' ? 'animate-spin text-blue-400' : 'text-slate-500 hover:text-white'}`}>
+          <CloudSync size={32} />
         </button>
         <div className="mt-auto text-slate-500"><Settings size={32} /></div>
       </div>
 
       <div className="flex-1 flex flex-col bg-slate-50 text-slate-900">
-        <header className="h-24 bg-white border-b px-12 flex items-center justify-between shadow-sm">
-          <h1 className="text-3xl font-black italic tracking-tighter">VENTUS <span className="text-blue-600">HARDWARE</span></h1>
-          <div className="flex items-center gap-4">
-             <div className="flex items-center text-xs font-bold text-green-500 bg-green-50 px-4 py-2 rounded-full border border-green-100">
-               <Wifi size={14} className="mr-2" /> PRINTER ONLINE
-             </div>
+        <header className="h-24 bg-white border-b px-12 flex items-center justify-between">
+          <div className="flex flex-col">
+            <h1 className="text-3xl font-black italic tracking-tighter">VENTUS <span className="text-blue-600">CLOUD</span></h1>
+            <div className="flex items-center mt-1">
+              <div className={`w-2 h-2 rounded-full mr-2 ${syncStatus === 'success' ? 'bg-green-500' : 'bg-blue-500 animate-pulse'}`}></div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                {syncStatus === 'syncing' ? '數據傳輸中...' : `待同步單據: ${pendingCount}`}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+             <button onClick={triggerSync} className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">
+               {syncStatus === 'syncing' ? <RefreshCw size={18} className="animate-spin"/> : <Cloud size={18}/>}
+               立即同步
+             </button>
           </div>
         </header>
 
-        <div className="flex-1 p-10 grid grid-cols-2 lg:grid-cols-3 gap-8 overflow-y-auto">
-          {[ {id:1, name:'藍山精品', price:280}, {id:2, name:'招牌咖啡', price:120} ].map(p => (
-            <button key={p.id} onClick={() => setCart([...cart, p])} className="bg-white p-8 rounded-[48px] shadow-sm border-2 border-transparent active:border-blue-500 flex flex-col justify-between h-48 transition-all">
-              <span className="font-black text-2xl">{p.name}</span>
-              <span className="text-blue-600 font-black text-3xl font-mono">$ {p.price}</span>
+        <main className="flex-1 p-12 overflow-y-auto">
+          {/* 同步狀態看板 */}
+          <div className="max-w-4xl mx-auto space-y-8">
+            <div className="grid grid-cols-3 gap-8">
+              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
+                <div className="text-blue-500 mb-4"><Server size={32}/></div>
+                <div className="text-3xl font-black mb-1 font-mono">{pendingCount}</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">本地待同步</div>
+              </div>
+              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
+                <div className="text-green-500 mb-4"><ShieldCheck size={32}/></div>
+                <div className="text-3xl font-black mb-1 font-mono">100%</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">系統健康度</div>
+              </div>
+              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
+                <div className="text-purple-500 mb-4"><Globe size={32}/></div>
+                <div className="text-3xl font-black mb-1 font-mono">ASIA-1</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">目前伺服器</div>
+              </div>
+            </div>
+
+            {/* 同步日誌預覽 */}
+            <div className="bg-slate-900 rounded-[40px] p-10 text-white shadow-2xl relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-8 opacity-10"><Database size={120}/></div>
+               <h3 className="text-xl font-black mb-6 flex items-center">
+                 <RefreshCw size={20} className="mr-3 text-blue-500" /> 同步日誌 (Cloud Logs)
+               </h3>
+               <div className="space-y-4 font-mono text-sm opacity-80">
+                 <div className="flex gap-4"><span className="text-blue-400">[INFO]</span><span>系統檢測到 {pendingCount} 筆新數據。</span></div>
+                 <div className="flex gap-4"><span className="text-green-400">[READY]</span><span>加密通道已建立 (AES-256)。</span></div>
+                 {syncStatus === 'syncing' && <div className="flex gap-4"><span className="text-yellow-400">[WAIT]</span><span>正在上傳單據數據至雲端集線器...</span></div>}
+                 {syncStatus === 'success' && <div className="flex gap-4"><span className="text-green-400">[DONE]</span><span>所有本地數據已與雲端同步完成。</span></div>}
+               </div>
+            </div>
+
+            <button onClick={handleCharge} className="w-full py-8 bg-blue-600 text-white rounded-[32px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
+              測試收銀 (產生待同步數據)
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 結帳側欄 */}
-      <div className="w-[450px] bg-white border-l shadow-2xl flex flex-col text-slate-900">
-        <div className="p-10 border-b flex justify-between items-center bg-slate-50">
-          <h2 className="font-black text-2xl italic tracking-tighter">單據明細</h2>
-          {isPrinting && <RefreshCw className="animate-spin text-blue-600" />}
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {cart.map((item, i) => (
-            <div key={i} className="p-5 bg-white rounded-3xl border border-slate-100 font-bold flex justify-between shadow-sm">
-              <span>{item.name}</span><span>$ {item.price}</span>
-            </div>
-          ))}
-        </div>
-        <div className="p-10 bg-slate-950 text-white rounded-t-[60px]">
-          <div className="flex justify-between text-5xl font-black mb-10 tracking-tighter">
-            <span>總額</span><span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price,0)}</span>
           </div>
-          <button 
-            onClick={handleCharge} 
-            disabled={isPrinting}
-            className={`w-full py-7 rounded-[30px] font-black text-2xl shadow-xl transition-all ${isPrinting ? 'bg-slate-700' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20 active:scale-95'}`}
-          >
-            {isPrinting ? '正在列印...' : '結帳並列印'}
-          </button>
-        </div>
+        </main>
       </div>
-
-      {/* 印表機設置彈窗 (對標 Ch 2.8) */}
-      {showPrinterPanel && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-2xl rounded-[60px] shadow-2xl overflow-hidden animate-in zoom-in duration-300 text-slate-900">
-            <div className="p-10 border-b bg-slate-50 flex justify-between items-center">
-              <h3 className="text-3xl font-black italic tracking-tighter">硬體連結中心</h3>
-              <button onClick={() => setShowPrinterPanel(false)}><X size={32}/></button>
-            </div>
-            <div className="p-10 space-y-8">
-              <div className="grid grid-cols-2 gap-6">
-                <button className="p-8 bg-blue-50 border-2 border-blue-500 rounded-[40px] flex flex-col items-center gap-4">
-                  <Bluetooth size={48} className="text-blue-600" />
-                  <span className="font-black text-xl">藍牙印表機</span>
-                </button>
-                <button className="p-8 bg-slate-50 border-2 border-transparent rounded-[40px] flex flex-col items-center gap-4 opacity-50">
-                  <Wifi size={48} className="text-slate-600" />
-                  <span className="font-black text-xl">網路印表機</span>
-                </button>
-              </div>
-              <div className="bg-slate-100 p-8 rounded-[40px]">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">搜尋到的設備</h4>
-                <div className="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-200">
-                  <div className="flex items-center gap-3">
-                    <FileText size={20} className="text-blue-500" />
-                    <span className="font-bold">Thermal Printer 58mm</span>
-                  </div>
-                  <span className="text-[10px] bg-green-500 text-white px-2 py-1 rounded-full font-black">已連線</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isCheckedOut && (
         <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
-          <CheckCircle size={150} className="mb-10 animate-bounce" />
-          <h1 className="text-6xl font-black mb-10 text-center tracking-tighter">支付成功！<br/><span className="text-2xl opacity-70">收據已自動派送至印表機</span></h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-20 py-6 bg-white text-blue-600 rounded-[35px] font-black text-3xl shadow-2xl">下一筆</button>
+          <CheckCircle size={120} className="mb-6 animate-bounce" />
+          <h1 className="text-5xl font-black mb-10">本地存檔成功</h1>
+          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">返回</button>
         </div>
       )}
     </div>
