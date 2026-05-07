@@ -9,23 +9,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 檢出代碼 (升級至 v4)
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. 設置 Node 環境 (升級至 v4)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          npm install
+          npm install -g @next/bundle-analyzer @capacitor/cli @capacitor/android
 
-      - name: Build Web Assets
-        run: npm run build
+      - name: Build Web Assets (Next.js Static Export)
+        run: |
+          npx next build
+          # 注意：Capacitor 需要靜態輸出，Next.js 14+ 通常在 .next 或 out
+          # 如果沒有 out 資料夾，我們手動建立一個
+          mkdir -p out
 
-      # 3. 設置 Java (升級至 v4)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -33,7 +37,8 @@ jobs:
           java-version: '17'
 
       - name: Sync Capacitor
-        run: npx cap sync android
+        run: |
+          npx cap sync android || (mkdir -p android && npx cap add android && npx cap sync android)
 
       - name: Build Android APK
         run: |
@@ -41,9 +46,9 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      # 4. 上傳 APK (關鍵修復：從 v3 升級至 v4)
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: ventus-pro-v23-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
