@@ -1,142 +1,148 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Cloud, CloudOff, CloudSync, 
-  Database, ShieldCheck, RefreshCw, Server, Wifi, Globe, Settings 
+  ShoppingCart, Utensils, Clock, CheckCircle2, 
+  Timer, ChevronRight, LayoutDashboard, Bell, X, Trash2
 } from 'lucide-react';
 
-// 1. 資料庫結構：加入同步版本號 (對標 Ch 8.1)
-const db = new Dexie('VentusPOS_V18');
+// 1. 資料庫結構：加入訂單狀態欄位 (對標 Ch 9.2)
+const db = new Dexie('VentusPOS_V19');
 db.version(1).stores({
-  receipts: '++id, timestamp, total, isSynced',
-  inventory: 'id, name, price, stock, lastUpdated',
+  orders: '++id, timestamp, items, total, status, waitTime', // status: 'pending', 'preparing', 'ready'
 });
 
-export default function CloudSyncPOS() {
-  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle', 'syncing', 'success', 'error'
-  const [pendingCount, setPendingCount] = useState(0);
+export default function KitchenPOS() {
+  const [view, setView] = useState('pos'); // 'pos' 或 'kds'
+  const [orders, setOrders] = useState([]);
+  const [cart, setCart] = useState([]);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
-  // 模擬檢查未同步數據
+  // 定時刷新：讓廚房看到最新訂單並更新等待時間
   useEffect(() => {
-    const checkSync = async () => {
-      const unsynced = await db.receipts.where('isSynced').equals(0).count();
-      setPendingCount(unsynced);
+    const fetchOrders = async () => {
+      const allOrders = await db.orders.toArray();
+      setOrders(allOrders);
     };
-    checkSync();
-  }, [isCheckedOut, syncStatus]);
-
-  // 核心：雲端同步引擎 (對標 Ch 8.2)
-  const triggerSync = async () => {
-    setSyncStatus('syncing');
-    
-    // 模擬網路延遲與 API 呼叫
-    setTimeout(async () => {
-      try {
-        const unsyncedReceipts = await db.receipts.where('isSynced').equals(0).toArray();
-        
-        // 這裡未來會接 fetch('https://your-api.com/sync', ...)
-        console.log("正在上傳數據至雲端...", unsyncedReceipts);
-        
-        // 標記為已同步
-        await db.receipts.where('isSynced').equals(0).modify({ isSynced: 1 });
-        
-        setSyncStatus('success');
-        setTimeout(() => setSyncStatus('idle'), 3000);
-      } catch (e) {
-        setSyncStatus('error');
-      }
-    }, 2000);
-  };
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 3000);
+    return () => clearInterval(interval);
+  }, [view, isCheckedOut]);
 
   const handleCharge = async () => {
-    await db.receipts.add({
+    if (cart.length === 0) return;
+    await db.orders.add({
       timestamp: new Date().toISOString(),
-      total: 100, // 簡化展示
-      isSynced: 0
+      items: JSON.stringify(cart),
+      total: cart.reduce((a, c) => a + c.price, 0),
+      status: 'pending'
     });
     setIsCheckedOut(true);
+    setCart([]);
+  };
+
+  const updateStatus = async (id, newStatus) => {
+    await db.orders.update(id, { status: newStatus });
+    setOrders(await db.orders.toArray());
   };
 
   return (
     <div className="flex h-screen bg-slate-950 text-white font-sans overflow-hidden">
-      {/* 側邊導航 */}
-      <div className="w-24 bg-black flex flex-col items-center py-10 space-y-12">
-        <div className="bg-blue-600 p-4 rounded-3xl"><ShoppingCart size={32} /></div>
-        <button onClick={triggerSync} className={`p-4 rounded-3xl transition-all ${syncStatus === 'syncing' ? 'animate-spin text-blue-400' : 'text-slate-500 hover:text-white'}`}>
-          <CloudSync size={32} />
+      {/* 側邊切換欄 (對標專業 KDS 介面) */}
+      <div className="w-24 bg-black flex flex-col items-center py-10 space-y-12 shadow-[5px_0_30px_rgba(0,0,0,0.5)] z-20">
+        <button onClick={() => setView('pos')} className={`p-4 rounded-[24px] transition-all ${view === 'pos' ? 'bg-blue-600 shadow-lg shadow-blue-500/50' : 'text-slate-600'}`}>
+          <ShoppingCart size={32} />
         </button>
-        <div className="mt-auto text-slate-500"><Settings size={32} /></div>
+        <button onClick={() => setView('kds')} className={`p-4 rounded-[24px] transition-all ${view === 'kds' ? 'bg-orange-600 shadow-lg shadow-orange-500/50' : 'text-slate-600'}`}>
+          <Utensils size={32} />
+        </button>
+        <div className="mt-auto flex flex-col items-center gap-6">
+           <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 animate-pulse">
+             <Bell size={24} className="text-orange-400" />
+           </div>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col bg-slate-50 text-slate-900">
-        <header className="h-24 bg-white border-b px-12 flex items-center justify-between">
-          <div className="flex flex-col">
-            <h1 className="text-3xl font-black italic tracking-tighter">VENTUS <span className="text-blue-600">CLOUD</span></h1>
-            <div className="flex items-center mt-1">
-              <div className={`w-2 h-2 rounded-full mr-2 ${syncStatus === 'success' ? 'bg-green-500' : 'bg-blue-500 animate-pulse'}`}></div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                {syncStatus === 'syncing' ? '數據傳輸中...' : `待同步單據: ${pendingCount}`}
-              </span>
+        {view === 'pos' ? (
+          <div className="flex-1 flex">
+            {/* 收銀模式介面 */}
+            <div className="flex-1 p-8 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
+              {[ {id:1, name:'厚切豬排飯', price:180}, {id:2, name:'招牌咖啡', price:120} ].map(p => (
+                <button key={p.id} onClick={() => setCart([...cart, p])} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 h-44 flex flex-col justify-between text-left active:scale-95 transition-all">
+                  <span className="font-black text-2xl text-slate-800">{p.name}</span>
+                  <span className="text-blue-600 font-black text-2xl font-mono">$ {p.price}</span>
+                </button>
+              ))}
+            </div>
+            <div className="w-96 bg-white border-l shadow-2xl p-8 flex flex-col">
+              <h2 className="text-2xl font-black mb-8 italic tracking-tighter uppercase">New Ticket</h2>
+              <div className="flex-1 overflow-y-auto space-y-4">
+                {cart.map((item, i) => <div key={i} className="p-4 bg-slate-50 rounded-2xl font-bold flex justify-between"><span>{item.name}</span><span>$ {item.price}</span></div>)}
+              </div>
+              <button onClick={handleCharge} className="w-full mt-6 py-6 bg-slate-900 text-white rounded-3xl font-black text-xl shadow-xl active:scale-95 transition-all">發送到廚房</button>
             </div>
           </div>
+        ) : (
+          <div className="flex-1 p-8 bg-slate-900 overflow-hidden flex flex-col">
+            {/* KDS 廚房模式介面 (對標 Ch 9.2.1) */}
+            <header className="flex justify-between items-end mb-10">
+              <h1 className="text-4xl font-black text-white italic tracking-tighter">KDS <span className="text-orange-500">MONITOR</span></h1>
+              <div className="flex gap-4">
+                 <div className="bg-slate-800 px-6 py-2 rounded-full text-xs font-bold text-orange-400 border border-orange-500/30 uppercase tracking-widest">廚房系統運行中</div>
+              </div>
+            </header>
 
-          <div className="flex gap-4">
-             <button onClick={triggerSync} className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl active:scale-95 transition-all">
-               {syncStatus === 'syncing' ? <RefreshCw size={18} className="animate-spin"/> : <Cloud size={18}/>}
-               立即同步
-             </button>
-          </div>
-        </header>
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto pb-10">
+              {orders.filter(o => o.status !== 'ready').map(order => (
+                <div key={order.id} className={`bg-white rounded-[40px] p-8 flex flex-col justify-between shadow-2xl border-l-[12px] ${order.status === 'preparing' ? 'border-orange-500' : 'border-blue-500'}`}>
+                  <div>
+                    <div className="flex justify-between items-start mb-6">
+                      <span className="font-black text-3xl">#00{order.id}</span>
+                      <div className="flex items-center text-slate-400 font-bold text-sm">
+                        <Clock size={16} className="mr-1" />
+                        {new Date(order.timestamp).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <div className="space-y-3 mb-8">
+                      {JSON.parse(order.items).map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-xl font-bold text-slate-700">
+                          <span>• {item.name}</span>
+                          <span className="text-slate-300">x1</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-        <main className="flex-1 p-12 overflow-y-auto">
-          {/* 同步狀態看板 */}
-          <div className="max-w-4xl mx-auto space-y-8">
-            <div className="grid grid-cols-3 gap-8">
-              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
-                <div className="text-blue-500 mb-4"><Server size={32}/></div>
-                <div className="text-3xl font-black mb-1 font-mono">{pendingCount}</div>
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">本地待同步</div>
-              </div>
-              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
-                <div className="text-green-500 mb-4"><ShieldCheck size={32}/></div>
-                <div className="text-3xl font-black mb-1 font-mono">100%</div>
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">系統健康度</div>
-              </div>
-              <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100">
-                <div className="text-purple-500 mb-4"><Globe size={32}/></div>
-                <div className="text-3xl font-black mb-1 font-mono">ASIA-1</div>
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">目前伺服器</div>
-              </div>
+                  <div className="flex gap-3">
+                    {order.status === 'pending' ? (
+                      <button 
+                        onClick={() => updateStatus(order.id, 'preparing')}
+                        className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
+                      >
+                        開始製作
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => updateStatus(order.id, 'ready')}
+                        className="flex-1 py-5 bg-green-500 text-white rounded-2xl font-black text-lg shadow-lg shadow-green-500/20 active:scale-95 transition-all"
+                      >
+                        完成出餐
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-
-            {/* 同步日誌預覽 */}
-            <div className="bg-slate-900 rounded-[40px] p-10 text-white shadow-2xl relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-8 opacity-10"><Database size={120}/></div>
-               <h3 className="text-xl font-black mb-6 flex items-center">
-                 <RefreshCw size={20} className="mr-3 text-blue-500" /> 同步日誌 (Cloud Logs)
-               </h3>
-               <div className="space-y-4 font-mono text-sm opacity-80">
-                 <div className="flex gap-4"><span className="text-blue-400">[INFO]</span><span>系統檢測到 {pendingCount} 筆新數據。</span></div>
-                 <div className="flex gap-4"><span className="text-green-400">[READY]</span><span>加密通道已建立 (AES-256)。</span></div>
-                 {syncStatus === 'syncing' && <div className="flex gap-4"><span className="text-yellow-400">[WAIT]</span><span>正在上傳單據數據至雲端集線器...</span></div>}
-                 {syncStatus === 'success' && <div className="flex gap-4"><span className="text-green-400">[DONE]</span><span>所有本地數據已與雲端同步完成。</span></div>}
-               </div>
-            </div>
-
-            <button onClick={handleCharge} className="w-full py-8 bg-blue-600 text-white rounded-[32px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
-              測試收銀 (產生待同步數據)
-            </button>
           </div>
-        </main>
+        )}
       </div>
 
       {isCheckedOut && (
         <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
-          <CheckCircle size={120} className="mb-6 animate-bounce" />
-          <h1 className="text-5xl font-black mb-10">本地存檔成功</h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">返回</button>
+          <CheckCircle2 size={120} className="mb-6 animate-bounce" />
+          <h1 className="text-5xl font-black mb-10">單據已送往廚房</h1>
+          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">返回收銀</button>
         </div>
       )}
     </div>
