@@ -2,197 +2,165 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, Layers, List, Package, 
-  CheckCircle, ChevronRight, X, Trash2, Settings, BarChart3 
+  ShoppingCart, Scan, Keyboard, Package, 
+  Search, CheckCircle, X, Trash2, Zap, AlertCircle 
 } from 'lucide-react';
 
-// 1. 資料庫結構：支持商品規格變體 (對標 Ch 3.2)
-const db = new Dexie('VentusPOS_V14');
+// 1. 資料庫結構：加入 SKU 條碼支援 (對標 Ch 2.4)
+const db = new Dexie('VentusPOS_V15');
 db.version(1).stores({
-  inventory: 'id, name, type', // type: 'single' 或 'variants'
-  variants: '++id, productId, sizeName, price, stock',
+  inventory: 'id, name, price, sku, stock',
   receipts: '++id, timestamp, total, items'
 });
 
-export default function VariantPOS() {
-  const [products, setProducts] = useState([]);
+export default function BarcodePOS() {
   const [cart, setCart] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(null); // 控制規格選擇彈窗
+  const [products, setProducts] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [manualSku, setManualSku] = useState('');
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
   useEffect(() => {
     const init = async () => {
       if (await db.inventory.count() === 0) {
-        // 初始化多規格商品數據
-        await db.inventory.add({ id: 101, name: '招牌拿鐵', type: 'variants' });
-        await db.variants.bulkAdd([
-          { productId: 101, sizeName: '大杯 (L)', price: 150, stock: 20 },
-          { productId: 101, sizeName: '中杯 (M)', price: 120, stock: 45 }
-        ]);
-        
-        await db.inventory.add({ id: 202, name: '經典美式', type: 'variants' });
-        await db.variants.bulkAdd([
-          { productId: 202, sizeName: '大杯 (L)', price: 110, stock: 30 },
-          { productId: 202, sizeName: '中杯 (M)', price: 90, stock: 50 }
+        await db.inventory.bulkAdd([
+          { id: 1, name: '可口可樂 330ml', price: 25, sku: '690123456789', stock: 100 },
+          { id: 2, name: '樂事原味洋芋片', price: 45, sku: '471012345678', stock: 50 },
+          { id: 3, name: '貝納頌拿鐵', price: 35, sku: '471098765432', stock: 80 }
         ]);
       }
-      const inv = await db.inventory.toArray();
-      const withVariants = await Promise.all(inv.map(async p => ({
-        ...p,
-        variants: await db.variants.where('productId').equals(p.id).toArray()
-      })));
-      setProducts(withVariants);
+      setProducts(await db.inventory.toArray());
     };
     init();
   }, [isCheckedOut]);
 
-  const addToCart = (product, variant) => {
-    const cartId = `${product.id}-${variant.id}`;
-    const exist = cart.find(x => x.cartId === cartId);
-    
-    if (exist) {
-      setCart(cart.map(x => x.cartId === cartId ? {...x, qty: x.qty + 1} : x));
+  // 核心：SKU 匹配入單邏輯
+  const handleScanSuccess = async (scannedSku) => {
+    const product = await db.inventory.where('sku').equals(scannedSku).first();
+    if (product) {
+      if (product.stock <= 0) return alert('此商品庫存不足');
+      addToCart(product);
+      // 這裡未來可以加入音效播放 logic
     } else {
-      setCart([...cart, { 
-        cartId, 
-        name: product.name, 
-        variantName: variant.sizeName, 
-        price: variant.price, 
-        variantId: variant.id,
-        qty: 1 
-      }]);
+      alert('找不到此條碼對應的商品: ' + scannedSku);
     }
-    setSelectedProduct(null);
+    setIsScanning(false);
+    setManualSku('');
   };
 
-  const handleCharge = async () => {
-    if (cart.length === 0) return;
-    await db.transaction('rw', db.variants, db.receipts, async () => {
-      for (const item of cart) {
-        await db.variants.where('id').equals(item.variantId).modify(x => { x.stock -= item.qty; });
-      }
-      await db.receipts.add({
-        timestamp: new Date().toISOString(),
-        total: cart.reduce((a,c) => a + c.price*c.qty, 0),
-        items: JSON.stringify(cart)
-      });
-    });
-    setIsCheckedOut(true);
-    setCart([]);
+  const addToCart = (p) => {
+    const exist = cart.find(x => x.id === p.id);
+    setCart(exist ? cart.map(x => x.id === p.id ? {...exist, qty: exist.qty + 1} : x) : [...cart, {...p, qty: 1}]);
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
-      {/* 側邊導航 */}
-      <div className="w-24 bg-slate-900 flex flex-col items-center py-10 space-y-12 text-white shadow-2xl">
-        <div className="bg-blue-600 p-4 rounded-3xl shadow-lg shadow-blue-500/40"><ShoppingCart size={32} /></div>
-        <div className="text-slate-500 hover:text-white transition-colors"><Layers size={32} /></div>
-        <div className="text-slate-500 hover:text-white transition-colors"><BarChart3 size={32} /></div>
-        <div className="mt-auto text-slate-500"><Settings size={32} /></div>
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* 導覽列 */}
+      <div className="w-20 bg-slate-900 flex flex-col items-center py-8 space-y-10 text-white shadow-2xl">
+        <div className="bg-blue-600 p-3 rounded-2xl shadow-lg"><ShoppingCart size={28} /></div>
+        <button onClick={() => setIsScanning(true)} className="text-slate-500 hover:text-blue-400 transition-colors">
+          <Scan size={28} />
+        </button>
+        <div className="mt-auto text-slate-500"><Package size={28} /></div>
       </div>
 
       <div className="flex-1 flex flex-col">
-        <header className="h-24 bg-white border-b px-10 flex items-center justify-between shadow-sm">
-          <h2 className="font-black text-3xl text-slate-800 tracking-tighter italic">VENTUS VARIANTS</h2>
-          <div className="flex items-center gap-4">
-             <div className="bg-slate-100 p-3 rounded-2xl text-slate-400"><List size={20}/></div>
-             <div className="bg-slate-100 p-3 rounded-2xl text-slate-400"><Package size={20}/></div>
-          </div>
+        <header className="h-20 bg-white border-b px-8 flex items-center justify-between shadow-sm">
+          <h2 className="font-black text-2xl tracking-tighter italic">VENTUS SCANNER</h2>
+          {/* 掃描快捷按鈕 */}
+          <button 
+            onClick={() => setIsScanning(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-2xl font-black shadow-lg shadow-blue-500/30 active:scale-95 transition-all"
+          >
+            <Zap size={18} fill="currentColor" /> 開啟掃描槍
+          </button>
         </header>
 
-        {/* 商品展示區 (對標 Ch 3.2) */}
-        <div className="flex-1 p-8 grid grid-cols-2 lg:grid-cols-3 gap-8 overflow-y-auto">
+        {/* 商品與 SKU 列表 */}
+        <div className="flex-1 p-6 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
           {products.map(p => (
-            <button 
-              key={p.id} 
-              onClick={() => setSelectedProduct(p)}
-              className="bg-white p-8 rounded-[48px] shadow-sm border-2 border-transparent hover:border-blue-500 hover:bg-blue-50/30 transition-all text-left flex flex-col justify-between h-52 group"
-            >
+            <button key={p.id} onClick={() => addToCart(p)} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 text-left h-44 flex flex-col justify-between hover:border-blue-500 transition-all">
               <div>
-                <div className="font-black text-2xl text-slate-800 group-hover:text-blue-600 transition-colors">{p.name}</div>
-                <div className="mt-2 flex gap-2">
-                  {p.variants.map(v => (
-                    <span key={v.id} className="text-[10px] font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded-full">{v.sizeName}</span>
-                  ))}
-                </div>
+                <div className="font-black text-xl leading-tight">{p.name}</div>
+                <div className="text-[10px] text-slate-400 font-mono mt-1">SKU: {p.sku}</div>
               </div>
-              <div className="flex justify-between items-end">
-                <span className="text-slate-400 text-sm font-bold">多規格可選</span>
-                <ChevronRight size={24} className="text-blue-500" />
-              </div>
+              <div className="text-blue-600 font-black text-2xl font-mono">$ {p.price}</div>
             </button>
           ))}
         </div>
       </div>
 
       {/* 結帳側欄 */}
-      <div className="w-[450px] bg-white border-l shadow-2xl flex flex-col">
+      <div className="w-96 bg-white border-l shadow-2xl flex flex-col">
         <div className="p-8 border-b flex justify-between items-center">
-          <h3 className="font-black text-2xl italic">當前單據</h3>
-          <button onClick={() => setCart([])} className="text-slate-300 hover:text-red-500"><Trash2 size={24}/></button>
+          <h3 className="font-black text-xl italic">單據明細</h3>
+          <button onClick={() => setCart([])} className="text-slate-300 hover:text-red-500"><Trash2 size={20}/></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {cart.map(item => (
-            <div key={item.cartId} className="p-5 bg-slate-50 rounded-[32px] border border-slate-100">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-black text-xl">{item.name}</div>
-                  <div className="text-blue-500 font-bold text-sm">{item.variantName}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono font-black text-xl">$ {item.price * item.qty}</div>
-                  <div className="text-xs text-slate-400 font-bold">x {item.qty}</div>
-                </div>
-              </div>
+        <div className="flex-1 p-4 overflow-y-auto space-y-3">
+          {cart.map((item, i) => (
+            <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl font-bold border border-slate-100">
+              <span>{item.name} x{item.qty}</span>
+              <span>$ {item.price * item.qty}</span>
             </div>
           ))}
         </div>
-        <div className="p-10 bg-slate-900 text-white rounded-t-[60px]">
-          <div className="flex justify-between text-5xl font-black mb-10 tracking-tighter">
+        <div className="p-8 bg-slate-900 text-white rounded-t-[48px]">
+          <div className="flex justify-between text-4xl font-black mb-8 tracking-tighter">
             <span>總額</span><span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price*c.qty,0)}</span>
           </div>
-          <button onClick={handleCharge} className="w-full py-7 bg-blue-600 rounded-[30px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">確認結帳</button>
+          <button onClick={() => setIsCheckedOut(true)} className="w-full py-6 bg-blue-600 rounded-3xl font-black text-2xl active:scale-95 transition-all shadow-xl shadow-blue-500/20">確認結帳</button>
         </div>
       </div>
 
-      {/* 規格選擇彈窗 (對標 Ch 3.2.1) */}
-      {selectedProduct && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-xl rounded-[60px] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
-            <div className="p-12 border-b bg-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="text-4xl font-black">{selectedProduct.name}</h3>
-                <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-xs text-blue-500">請選擇規格變體</p>
-              </div>
-              <button onClick={() => setSelectedProduct(null)} className="p-4 bg-white rounded-full shadow-sm hover:bg-red-50 hover:text-red-500 transition-all"><X size={32}/></button>
+      {/* 條碼掃描介面 (對標 Ch 2.4.1) */}
+      {isScanning && (
+        <div className="fixed inset-0 bg-black z-[100] flex flex-col">
+          <div className="h-24 bg-black/50 backdrop-blur-md flex items-center justify-between px-8 text-white">
+            <button onClick={() => setIsScanning(false)}><X size={32}/></button>
+            <h3 className="text-xl font-black italic">正在掃描商品條碼...</h3>
+            <div className="w-8"></div>
+          </div>
+          
+          {/* 掃描框模擬視覺效果 */}
+          <div className="flex-1 relative flex items-center justify-center">
+            <div className="w-72 h-48 border-2 border-blue-500 rounded-3xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-blue-500/10 animate-pulse"></div>
+              {/* 動態掃描線 */}
+              <div className="absolute top-0 left-0 w-full h-1 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,1)] animate-[scan_2s_infinite]"></div>
             </div>
-            <div className="p-10 space-y-4">
-              {selectedProduct.variants.map(v => (
-                <button 
-                  key={v.id} 
-                  onClick={() => addToCart(selectedProduct, v)}
-                  disabled={v.stock <= 0}
-                  className={`w-full p-8 rounded-[40px] border-2 flex justify-between items-center transition-all ${v.stock > 0 ? 'bg-slate-50 border-slate-100 hover:border-blue-500 hover:bg-blue-50 active:scale-95' : 'opacity-40 grayscale cursor-not-allowed'}`}
-                >
-                  <div className="text-left">
-                    <div className="font-black text-2xl">{v.sizeName}</div>
-                    <div className={`text-xs font-bold ${v.stock <= 5 ? 'text-red-500' : 'text-slate-400'}`}>庫存剩餘: {v.stock}</div>
-                  </div>
-                  <div className="text-blue-600 font-black text-3xl font-mono">$ {v.price}</div>
-                </button>
-              ))}
+            {/* 提示文字 */}
+            <p className="absolute bottom-10 text-white/60 font-bold text-sm">請將條碼對準藍色框內</p>
+          </div>
+
+          <div className="p-10 bg-black/50 backdrop-blur-md">
+            <div className="flex gap-4 mb-4">
+              <input 
+                placeholder="或手動輸入條碼..." 
+                className="flex-1 bg-white/10 border border-white/20 rounded-2xl px-6 py-4 text-white outline-none focus:border-blue-500"
+                value={manualSku}
+                onChange={(e) => setManualSku(e.target.value)}
+              />
+              <button onClick={() => handleScanSuccess(manualSku)} className="bg-white text-black px-8 py-4 rounded-2xl font-bold">送出</button>
             </div>
+            <p className="text-center text-xs text-white/30 italic">掃描功能需要 Camera 權限</p>
           </div>
         </div>
       )}
 
       {isCheckedOut && (
-        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
-          <CheckCircle size={150} className="mb-10 animate-bounce" />
-          <h1 className="text-6xl font-black mb-12 italic">收款完畢</h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-20 py-6 bg-white text-blue-600 rounded-[35px] font-black text-3xl shadow-2xl">下一筆交易</button>
+        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[200] text-white">
+          <CheckCircle size={120} className="mb-6 animate-bounce" />
+          <h1 className="text-5xl font-black mb-10 text-center tracking-tighter">交易成功！<br/><span className="text-2xl opacity-70">庫存已根據 SKU 同步扣除</span></h1>
+          <button onClick={() => {setIsCheckedOut(false); setCart([]);}} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">下一筆</button>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes scan {
+          0% { top: 0; }
+          100% { top: 100%; }
+        }
+      `}</style>
     </div>
   );
 }
