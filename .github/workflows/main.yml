@@ -1,4 +1,4 @@
-name: Build Ventus POS APK
+name: Final Master Build
 
 on:
   push:
@@ -8,13 +8,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # 強制將所有 Action 運行在 Node 24 環境下，消除警告
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (Target V24)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -22,7 +21,7 @@ jobs:
       - name: Install Dependencies
         run: npm install --force
 
-      - name: Build Web Assets (Turbopack)
+      - name: Build Web Assets
         run: npm run build
 
       - name: Setup Java
@@ -31,8 +30,14 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Sync Capacitor
-        run: npx cap sync android || (npx cap add android && npx cap sync android)
+      - name: Initialize Android Project
+        run: |
+          # 確保 android 目錄存在，若不存在則建立
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          # 將 Next.js 的 out 資料夾同步到安卓原生工程
+          npx cap sync android
 
       - name: Build Android APK
         run: |
@@ -43,5 +48,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ventus-pro-apk
+          name: ventus-pro-final
           path: android/app/build/outputs/apk/debug/app-debug.apk
