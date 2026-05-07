@@ -8,6 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
+      # 強制將所有 Action 運行在 Node 24 環境下，消除警告
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout Code
@@ -21,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Build Web Assets
+      - name: Build Web Assets (Turbopack)
         run: npm run build
 
       - name: Setup Java
@@ -31,8 +32,7 @@ jobs:
           java-version: '17'
 
       - name: Sync Capacitor
-        run: |
-          npx cap sync android || (npx cap add android && npx cap sync android)
+        run: npx cap sync android || (npx cap add android && npx cap sync android)
 
       - name: Build Android APK
         run: |
