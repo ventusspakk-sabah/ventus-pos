@@ -1,4 +1,4 @@
-name: Build Ventus POS APK
+name: Final Master Build
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -30,7 +29,8 @@ jobs:
           java-version: '17'
 
       - name: Sync Capacitor
-        run: npx cap sync android || (npx cap add android && npx cap sync android)
+        run: |
+          npx cap sync android || (npx cap add android && npx cap sync android)
 
       - name: Build Android APK
         run: |
@@ -41,5 +41,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ventus-pro-apk
+          name: ventus-pro-final
           path: android/app/build/outputs/apk/debug/app-debug.apk
