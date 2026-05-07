@@ -2,163 +2,195 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, BarChart3, Database, Download, 
-  FileSpreadsheet, Trash2, CheckCircle, Search, Settings, LogOut 
+  ShoppingCart, Layers, List, Package, 
+  CheckCircle, ChevronRight, X, Trash2, Settings, BarChart3 
 } from 'lucide-react';
 
-// 1. 資料庫結構 (對標 Ch 7.1 數據導出需求)
-const db = new Dexie('VentusPOS_V13');
+// 1. 資料庫結構：支持商品規格變體 (對標 Ch 3.2)
+const db = new Dexie('VentusPOS_V14');
 db.version(1).stores({
-  receipts: '++id, timestamp, total, paymentMethod, items',
-  inventory: '++id, name, price, stock'
+  inventory: 'id, name, type', // type: 'single' 或 'variants'
+  variants: '++id, productId, sizeName, price, stock',
+  receipts: '++id, timestamp, total, items'
 });
 
-export default function ExportPOS() {
-  const [view, setView] = useState('pos'); // 'pos', 'reports', 'admin'
+export default function VariantPOS() {
+  const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [inventory, setInventory] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null); // 控制規格選擇彈窗
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
-      setHistory(await db.receipts.toArray());
-      setInventory(await db.inventory.toArray());
+    const init = async () => {
+      if (await db.inventory.count() === 0) {
+        // 初始化多規格商品數據
+        await db.inventory.add({ id: 101, name: '招牌拿鐵', type: 'variants' });
+        await db.variants.bulkAdd([
+          { productId: 101, sizeName: '大杯 (L)', price: 150, stock: 20 },
+          { productId: 101, sizeName: '中杯 (M)', price: 120, stock: 45 }
+        ]);
+        
+        await db.inventory.add({ id: 202, name: '經典美式', type: 'variants' });
+        await db.variants.bulkAdd([
+          { productId: 202, sizeName: '大杯 (L)', price: 110, stock: 30 },
+          { productId: 202, sizeName: '中杯 (M)', price: 90, stock: 50 }
+        ]);
+      }
+      const inv = await db.inventory.toArray();
+      const withVariants = await Promise.all(inv.map(async p => ({
+        ...p,
+        variants: await db.variants.where('productId').equals(p.id).toArray()
+      })));
+      setProducts(withVariants);
     };
-    loadData();
-  }, [view, isCheckedOut]);
+    init();
+  }, [isCheckedOut]);
+
+  const addToCart = (product, variant) => {
+    const cartId = `${product.id}-${variant.id}`;
+    const exist = cart.find(x => x.cartId === cartId);
+    
+    if (exist) {
+      setCart(cart.map(x => x.cartId === cartId ? {...x, qty: x.qty + 1} : x));
+    } else {
+      setCart([...cart, { 
+        cartId, 
+        name: product.name, 
+        variantName: variant.sizeName, 
+        price: variant.price, 
+        variantId: variant.id,
+        qty: 1 
+      }]);
+    }
+    setSelectedProduct(null);
+  };
 
   const handleCharge = async () => {
     if (cart.length === 0) return;
-    await db.receipts.add({
-      timestamp: new Date().toISOString(),
-      total: cart.reduce((a, c) => a + c.price, 0),
-      paymentMethod: '現金',
-      items: JSON.stringify(cart)
+    await db.transaction('rw', db.variants, db.receipts, async () => {
+      for (const item of cart) {
+        await db.variants.where('id').equals(item.variantId).modify(x => { x.stock -= item.qty; });
+      }
+      await db.receipts.add({
+        timestamp: new Date().toISOString(),
+        total: cart.reduce((a,c) => a + c.price*c.qty, 0),
+        items: JSON.stringify(cart)
+      });
     });
     setIsCheckedOut(true);
     setCart([]);
   };
 
-  // 核心邏輯：CSV 格式化導出 (對標 Ch 3.6)
-  const exportToCSV = (data, fileName) => {
-    if (data.length === 0) return alert('目前沒有數據可供導出');
-    
-    // 取得欄位標頭
-    const headers = Object.keys(data[0]).join(',');
-    // 轉換每一行數據
-    const rows = data.map(item => 
-      Object.values(item).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')
-    );
-    const csvContent = "data:text/csv;charset=utf-8,\ufeff" + [headers, ...rows].join('\n');
-    
-    // 觸發下載
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", `${fileName}_${new Date().toLocaleDateString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* 側邊導航 */}
-      <div className="w-20 bg-slate-900 flex flex-col items-center py-8 space-y-10 text-white shadow-2xl">
-        <button onClick={() => setView('pos')} className={`p-3 rounded-2xl ${view === 'pos' ? 'bg-blue-600 shadow-lg' : 'text-slate-500'}`}><ShoppingCart size={28} /></button>
-        <button onClick={() => setView('reports')} className={`p-3 rounded-2xl ${view === 'reports' ? 'bg-blue-600 shadow-lg' : 'text-slate-500'}`}><BarChart3 size={28} /></button>
-        <button onClick={() => setView('admin')} className={`p-3 rounded-2xl ${view === 'admin' ? 'bg-blue-600 shadow-lg' : 'text-slate-500'}`}><Database size={28} /></button>
-        <div className="mt-auto text-slate-500"><Settings size={28} /></div>
+      <div className="w-24 bg-slate-900 flex flex-col items-center py-10 space-y-12 text-white shadow-2xl">
+        <div className="bg-blue-600 p-4 rounded-3xl shadow-lg shadow-blue-500/40"><ShoppingCart size={32} /></div>
+        <div className="text-slate-500 hover:text-white transition-colors"><Layers size={32} /></div>
+        <div className="text-slate-500 hover:text-white transition-colors"><BarChart3 size={32} /></div>
+        <div className="mt-auto text-slate-500"><Settings size={32} /></div>
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        {view === 'pos' && (
-          <div className="flex-1 flex">
-            {/* 銷售介面 */}
-            <div className="flex-1 p-6 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
-              {[ {id:1, name:'拿鐵', price:120}, {id:2, name:'美式', price:90} ].map(p => (
-                <button key={p.id} onClick={() => setCart([...cart, p])} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 h-44 flex flex-col justify-between text-left active:scale-95 transition-all">
-                  <span className="font-black text-2xl">{p.name}</span>
-                  <span className="text-blue-600 font-black text-2xl font-mono">$ {p.price}</span>
+      <div className="flex-1 flex flex-col">
+        <header className="h-24 bg-white border-b px-10 flex items-center justify-between shadow-sm">
+          <h2 className="font-black text-3xl text-slate-800 tracking-tighter italic">VENTUS VARIANTS</h2>
+          <div className="flex items-center gap-4">
+             <div className="bg-slate-100 p-3 rounded-2xl text-slate-400"><List size={20}/></div>
+             <div className="bg-slate-100 p-3 rounded-2xl text-slate-400"><Package size={20}/></div>
+          </div>
+        </header>
+
+        {/* 商品展示區 (對標 Ch 3.2) */}
+        <div className="flex-1 p-8 grid grid-cols-2 lg:grid-cols-3 gap-8 overflow-y-auto">
+          {products.map(p => (
+            <button 
+              key={p.id} 
+              onClick={() => setSelectedProduct(p)}
+              className="bg-white p-8 rounded-[48px] shadow-sm border-2 border-transparent hover:border-blue-500 hover:bg-blue-50/30 transition-all text-left flex flex-col justify-between h-52 group"
+            >
+              <div>
+                <div className="font-black text-2xl text-slate-800 group-hover:text-blue-600 transition-colors">{p.name}</div>
+                <div className="mt-2 flex gap-2">
+                  {p.variants.map(v => (
+                    <span key={v.id} className="text-[10px] font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded-full">{v.sizeName}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-between items-end">
+                <span className="text-slate-400 text-sm font-bold">多規格可選</span>
+                <ChevronRight size={24} className="text-blue-500" />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 結帳側欄 */}
+      <div className="w-[450px] bg-white border-l shadow-2xl flex flex-col">
+        <div className="p-8 border-b flex justify-between items-center">
+          <h3 className="font-black text-2xl italic">當前單據</h3>
+          <button onClick={() => setCart([])} className="text-slate-300 hover:text-red-500"><Trash2 size={24}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {cart.map(item => (
+            <div key={item.cartId} className="p-5 bg-slate-50 rounded-[32px] border border-slate-100">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-black text-xl">{item.name}</div>
+                  <div className="text-blue-500 font-bold text-sm">{item.variantName}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono font-black text-xl">$ {item.price * item.qty}</div>
+                  <div className="text-xs text-slate-400 font-bold">x {item.qty}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="p-10 bg-slate-900 text-white rounded-t-[60px]">
+          <div className="flex justify-between text-5xl font-black mb-10 tracking-tighter">
+            <span>總額</span><span className="text-blue-400">$ {cart.reduce((a,c)=>a+c.price*c.qty,0)}</span>
+          </div>
+          <button onClick={handleCharge} className="w-full py-7 bg-blue-600 rounded-[30px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">確認結帳</button>
+        </div>
+      </div>
+
+      {/* 規格選擇彈窗 (對標 Ch 3.2.1) */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-md z-50 flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-xl rounded-[60px] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+            <div className="p-12 border-b bg-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="text-4xl font-black">{selectedProduct.name}</h3>
+                <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-xs text-blue-500">請選擇規格變體</p>
+              </div>
+              <button onClick={() => setSelectedProduct(null)} className="p-4 bg-white rounded-full shadow-sm hover:bg-red-50 hover:text-red-500 transition-all"><X size={32}/></button>
+            </div>
+            <div className="p-10 space-y-4">
+              {selectedProduct.variants.map(v => (
+                <button 
+                  key={v.id} 
+                  onClick={() => addToCart(selectedProduct, v)}
+                  disabled={v.stock <= 0}
+                  className={`w-full p-8 rounded-[40px] border-2 flex justify-between items-center transition-all ${v.stock > 0 ? 'bg-slate-50 border-slate-100 hover:border-blue-500 hover:bg-blue-50 active:scale-95' : 'opacity-40 grayscale cursor-not-allowed'}`}
+                >
+                  <div className="text-left">
+                    <div className="font-black text-2xl">{v.sizeName}</div>
+                    <div className={`text-xs font-bold ${v.stock <= 5 ? 'text-red-500' : 'text-slate-400'}`}>庫存剩餘: {v.stock}</div>
+                  </div>
+                  <div className="text-blue-600 font-black text-3xl font-mono">$ {v.price}</div>
                 </button>
               ))}
             </div>
-            <div className="w-96 bg-white border-l shadow-2xl p-6 flex flex-col">
-              <h2 className="text-2xl font-black mb-8 italic tracking-tighter">當前單據</h2>
-              <div className="flex-1 overflow-y-auto space-y-3">
-                {cart.map((item, i) => <div key={i} className="p-4 bg-slate-50 rounded-2xl font-bold flex justify-between"><span>{item.name}</span><span>$ {item.price}</span></div>)}
-              </div>
-              <button onClick={handleCharge} className="w-full mt-6 py-6 bg-slate-900 text-white rounded-3xl font-black text-xl">確認收銀</button>
-            </div>
           </div>
-        )}
-
-        {view === 'admin' && (
-          <div className="flex-1 p-12 overflow-y-auto">
-            {/* 數據管理與導出介面 (對標 Ch 3.6) */}
-            <div className="max-w-4xl mx-auto">
-              <h1 className="text-4xl font-black mb-2 italic tracking-tighter uppercase">Data Management</h1>
-              <p className="text-slate-400 font-bold mb-10">將 POS 內的營業數據導出至 Excel 進行分析</p>
-
-              <div className="grid grid-cols-2 gap-8 mb-12">
-                {/* 銷售報表導出卡片 */}
-                <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100 flex flex-col justify-between h-80">
-                  <div>
-                    <div className="bg-green-100 text-green-600 w-16 h-16 rounded-3xl flex items-center justify-center mb-6">
-                      <FileSpreadsheet size={32} />
-                    </div>
-                    <h3 className="text-2xl font-black mb-2">銷售流水明細</h3>
-                    <p className="text-slate-400 text-sm font-bold">包含所有收據編號、時間、金額與支付方式</p>
-                  </div>
-                  <button 
-                    onClick={() => exportToCSV(history, 'Sales_Report')}
-                    className="w-full py-4 bg-green-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-green-700 transition-all"
-                  >
-                    <Download size={20} /> 導出 CSV (Excel)
-                  </button>
-                </div>
-
-                {/* 庫存清單導出卡片 */}
-                <div className="bg-white p-10 rounded-[50px] shadow-sm border border-slate-100 flex flex-col justify-between h-80">
-                  <div>
-                    <div className="bg-blue-100 text-blue-600 w-16 h-16 rounded-3xl flex items-center justify-center mb-6">
-                      <Package size={32} />
-                    </div>
-                    <h3 className="text-2xl font-black mb-2">商品庫存清單</h3>
-                    <p className="text-slate-400 text-sm font-bold">當前所有商品的庫存餘額、價格與 SKU</p>
-                  </div>
-                  <button 
-                    onClick={() => exportToCSV(inventory, 'Inventory_List')}
-                    className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-blue-700 transition-all"
-                  >
-                    <Download size={20} /> 導出 CSV (Excel)
-                  </button>
-                </div>
-              </div>
-
-              {/* 危險區域：清除數據 */}
-              <div className="bg-red-50 p-8 rounded-[40px] border-2 border-red-100 flex items-center justify-between">
-                <div>
-                  <h4 className="text-red-600 font-black text-xl mb-1 flex items-center gap-2"><Trash2 size={20}/> 重置系統資料庫</h4>
-                  <p className="text-red-400 text-sm font-bold">這將永久刪除所有歷史收據與設置，請務必先導出備份。</p>
-                </div>
-                <button 
-                  onClick={async () => { if(confirm('確定要清空所有數據？')){ await db.receipts.clear(); alert('已清空'); setView('pos'); }}}
-                  className="px-8 py-3 bg-red-600 text-white rounded-xl font-black text-sm"
-                >
-                  執行清空
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {isCheckedOut && (
-        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-50 text-white">
-          <CheckCircle size={100} className="mb-6 animate-bounce" />
-          <h1 className="text-4xl font-black mb-10">交易完成</h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-12 py-4 bg-white text-blue-600 rounded-2xl font-black text-xl">下一筆</button>
+        <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
+          <CheckCircle size={150} className="mb-10 animate-bounce" />
+          <h1 className="text-6xl font-black mb-12 italic">收款完畢</h1>
+          <button onClick={() => setIsCheckedOut(false)} className="px-20 py-6 bg-white text-blue-600 rounded-[35px] font-black text-3xl shadow-2xl">下一筆交易</button>
         </div>
       )}
     </div>
