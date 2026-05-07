@@ -20,7 +20,7 @@ jobs:
           node-version: '24'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm install --force
 
       - name: Build Web Assets (Turbopack)
         run: npm run build
