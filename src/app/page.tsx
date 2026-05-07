@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Dexie from 'dexie';
 import { 
   ShoppingCart, LayoutGrid, Users, Utensils, 
-  Scan, Globe, CloudSync, BarChart3, Settings, 
+  Scan, Globe, RefreshCw, BarChart3, Settings, 
   CheckCircle, Divide, Trash2, X, Plus, Minus, Banknote, CreditCard, Clock, Tag
 } from 'lucide-react';
 
@@ -99,7 +99,7 @@ export default function VentusMasterPOS() {
             {activeTable && <span className="bg-blue-50 text-blue-600 px-4 py-1 rounded-full text-xs font-black">TABLE: {activeTable.name}</span>}
           </div>
           <div className="flex items-center gap-3">
-             <div className="bg-green-50 text-green-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center"><CloudSync size={12} className="mr-1"/> CLOUD ONLINE</div>
+             <div className="bg-green-50 text-green-600 px-3 py-1 rounded-full text-[10px] font-bold flex items-center"><RefreshCw size={12} className="mr-1"/> CLOUD ONLINE</div>
           </div>
         </header>
 
