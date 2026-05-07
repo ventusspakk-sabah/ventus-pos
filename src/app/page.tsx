@@ -2,176 +2,197 @@
 import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { 
-  ShoppingCart, CreditCard, Banknote, Smartphone, 
-  Tag, Percent, CheckCircle, Trash2, X, ChevronRight 
+  ShoppingCart, History, RotateCcw, Package, 
+  Search, CheckCircle, X, ArrowLeft, Trash2, Calendar
 } from 'lucide-react';
 
-// 1. 資料庫結構：加入支付與折扣欄位 (對標 Ch 2.5)
-const db = new Dexie('VentusPOS_V9');
+// 1. 資料庫結構：加入退款狀態支援 (對標 Ch 2.13)
+const db = new Dexie('VentusPOS_V10');
 db.version(1).stores({
-  receipts: '++id, timestamp, subtotal, discount, tax, total, paymentMethod, staff',
-  inventory: 'id, name, price, stock, modifiers',
+  receipts: '++id, timestamp, total, items, status, paymentMethod',
+  inventory: 'id, name, price, stock'
 });
 
-export default function PaymentPOS() {
+export default function RefundPOS() {
+  const [view, setView] = useState('pos'); // 'pos' 或 'history'
   const [cart, setCart] = useState([]);
   const [products, setProducts] = useState([]);
-  const [activeDiscount, setActiveDiscount] = useState({ name: '無折扣', value: 0, type: 'percent' });
-  const [showPayModal, setShowPayModal] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
 
   useEffect(() => {
-    const init = async () => {
+    const load = async () => {
       if (await db.inventory.count() === 0) {
         await db.inventory.bulkAdd([
-          { id: 1, name: '耶加雪菲 手沖', price: 160, stock: 40 },
-          { id: 2, name: '法式千層派', price: 140, stock: 25 },
-          { id: 3, name: '拿鐵咖啡', price: 120, stock: 60 }
+          { id: 1, name: '拿鐵咖啡', price: 120, stock: 50 },
+          { id: 2, name: '法式千層', price: 150, stock: 30 },
+          { id: 3, name: '美式咖啡', price: 90, stock: 100 }
         ]);
       }
       setProducts(await db.inventory.toArray());
+      setHistory(await db.receipts.toArray());
     };
-    init();
-  }, [isCheckedOut]);
+    load();
+  }, [view, isCheckedOut]);
 
   const addToCart = (p) => {
     const exist = cart.find(x => x.id === p.id);
     setCart(exist ? cart.map(x => x.id === p.id ? {...exist, qty: exist.qty + 1} : x) : [...cart, {...p, qty: 1}]);
   };
 
-  // 財務計算引擎 (對標 Ch 2.6)
-  const subtotal = cart.reduce((a, c) => a + c.price * c.qty, 0);
-  const discountAmount = activeDiscount.type === 'percent' 
-    ? subtotal * (activeDiscount.value / 100) 
-    : activeDiscount.value;
-  const taxableAmount = subtotal - discountAmount;
-  const tax = Math.round(taxableAmount * 0.05);
-  const total = taxableAmount + tax;
-
-  const processPayment = async (method) => {
-    await db.receipts.add({
-      timestamp: new Date().toISOString(),
-      subtotal,
-      discount: discountAmount,
-      tax,
-      total,
-      paymentMethod: method,
-      staff: '店長 Leo'
+  const handleCharge = async () => {
+    if (cart.length === 0) return;
+    const total = cart.reduce((a, c) => a + c.price * c.qty, 0);
+    
+    await db.transaction('rw', db.inventory, db.receipts, async () => {
+      for (const item of cart) {
+        await db.inventory.where('id').equals(item.id).modify(x => { x.stock -= item.qty; });
+      }
+      await db.receipts.add({
+        timestamp: new Date().toISOString(),
+        total,
+        items: [...cart],
+        status: 'COMPLETED',
+        paymentMethod: '現金'
+      });
     });
-    // 扣庫存邏輯
-    for (const item of cart) {
-      await db.inventory.where('id').equals(item.id).modify(x => { x.stock -= item.qty; });
-    }
-    setShowPayModal(false);
     setIsCheckedOut(true);
     setCart([]);
-    setActiveDiscount({ name: '無折扣', value: 0, type: 'percent' });
+  };
+
+  // 核心邏輯：專業退款流程 (對標 Ch 2.13)
+  const handleRefund = async (receipt) => {
+    if (!confirm('確定要執行全額退款？這將會恢復對應的庫存數量。')) return;
+
+    await db.transaction('rw', db.inventory, db.receipts, async () => {
+      // 1. 恢復庫存
+      for (const item of receipt.items) {
+        await db.inventory.where('id').equals(item.id).modify(x => { x.stock += item.qty; });
+      }
+      // 2. 標記單據狀態
+      await db.receipts.update(receipt.id, { status: 'REFUNDED' });
+    });
+
+    setSelectedReceipt(null);
+    setHistory(await db.receipts.toArray());
+    alert('退款成功，庫存已回滾。');
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
-      {/* 商品區域 */}
-      <div className="flex-1 p-6 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
-        {products.map(p => (
-          <button key={p.id} onClick={() => addToCart(p)} className="bg-white p-6 rounded-[40px] shadow-sm border-2 border-transparent active:border-blue-500 h-44 flex flex-col justify-between text-left transition-all">
-            <span className="font-black text-2xl">{p.name}</span>
-            <span className="text-blue-600 font-black text-2xl font-mono">$ {p.price}</span>
-          </button>
-        ))}
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* 導覽列 */}
+      <div className="w-20 bg-slate-900 flex flex-col items-center py-8 space-y-10 text-white">
+        <button onClick={() => setView('pos')} className={`p-3 rounded-2xl ${view === 'pos' ? 'bg-blue-600' : 'text-slate-500'}`}><ShoppingCart size={28} /></button>
+        <button onClick={() => setView('history')} className={`p-3 rounded-2xl ${view === 'history' ? 'bg-blue-600' : 'text-slate-500'}`}><History size={28} /></button>
+        <div className="mt-auto text-slate-500"><Package size={28} /></div>
       </div>
 
-      {/* 結帳面板 */}
-      <div className="w-[450px] bg-white border-l shadow-2xl flex flex-col">
-        <div className="p-8 border-b flex justify-between items-center bg-white">
-          <h2 className="font-black text-2xl italic tracking-tighter">PAYMENT & TAX</h2>
-          <button onClick={() => setCart([])} className="text-slate-300 hover:text-red-500"><Trash2 size={24}/></button>
-        </div>
-
-        <div className="flex-1 p-6 overflow-y-auto space-y-4">
-          {cart.map(item => (
-            <div key={item.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-3xl border border-slate-100">
-              <span className="font-bold text-lg">{item.name} x{item.qty}</span>
-              <span className="font-mono font-black">$ {item.price * item.qty}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* 折扣選擇區 (對標 Ch 2.6) */}
-        <div className="p-6 border-t space-y-4 bg-white">
-          <div className="flex gap-2">
-            {[
-              { name: '無折扣', value: 0, type: 'percent' },
-              { name: '九折', value: 10, type: 'percent' },
-              { name: '折 50', value: 50, type: 'fixed' }
-            ].map(d => (
-              <button 
-                key={d.name}
-                onClick={() => setActiveDiscount(d)}
-                className={`flex-1 py-3 rounded-2xl font-bold text-sm transition-all border-2 ${activeDiscount.name === d.name ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-              >
-                {d.name}
+      {view === 'pos' ? (
+        <div className="flex-1 flex">
+          {/* POS 銷售介面 */}
+          <div className="flex-1 p-6 grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
+            {products.map(p => (
+              <button key={p.id} onClick={() => addToCart(p)} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-100 active:scale-95 text-left h-44 flex flex-col justify-between">
+                <span className="font-black text-2xl">{p.name}</span>
+                <div className="flex justify-between items-end">
+                  <span className="text-blue-600 font-black text-3xl font-mono">$ {p.price}</span>
+                  <span className="text-xs font-bold text-slate-400 italic">在庫: {p.stock}</span>
+                </div>
               </button>
             ))}
           </div>
-
-          {/* 財務摘要 */}
-          <div className="space-y-2 px-2 text-slate-500 font-bold">
-            <div className="flex justify-between"><span>小計</span><span>$ {subtotal}</span></div>
-            <div className="flex justify-between text-red-500"><span>折扣 ({activeDiscount.name})</span><span>- $ {discountAmount}</span></div>
-            <div className="flex justify-between"><span>稅額 (5%)</span><span>$ {tax}</span></div>
-            <div className="flex justify-between text-4xl font-black text-slate-900 pt-4 border-t-2 border-dashed">
-              <span>總額</span><span className="text-blue-600">$ {total}</span>
+          <div className="w-96 bg-white border-l p-6 flex flex-col shadow-2xl">
+            <h2 className="text-2xl font-black mb-8 italic tracking-tighter">新帳單</h2>
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {cart.map(item => (
+                <div key={item.id} className="flex justify-between p-4 bg-slate-50 rounded-2xl font-bold">
+                  <span>{item.name} x{item.qty}</span>
+                  <span>$ {item.price * item.qty}</span>
+                </div>
+              ))}
+            </div>
+            <div className="pt-6 border-t">
+              <div className="flex justify-between text-4xl font-black mb-8">
+                <span>總計</span><span className="text-blue-600">$ {cart.reduce((a,c)=>a+c.price*c.qty,0)}</span>
+              </div>
+              <button onClick={handleCharge} className="w-full py-6 bg-slate-900 text-white rounded-3xl font-black text-2xl shadow-xl active:scale-95 transition-all">確認收款</button>
             </div>
           </div>
-
-          <button 
-            onClick={() => cart.length > 0 && setShowPayModal(true)}
-            className="w-full mt-6 py-6 bg-blue-600 text-white rounded-[30px] font-black text-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
-          >
-            選擇支付方式
-          </button>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 p-8 bg-white overflow-y-auto">
+          {/* 交易管理介面 (對標 Ch 2.11) */}
+          <div className="max-w-4xl mx-auto">
+            <h1 className="text-4xl font-black mb-10 italic tracking-tighter">交易履歷管理</h1>
+            <div className="space-y-4">
+              {history.slice().reverse().map(receipt => (
+                <button 
+                  key={receipt.id} 
+                  onClick={() => setSelectedReceipt(receipt)}
+                  className={`w-full p-6 rounded-[32px] flex justify-between items-center transition-all border-2 ${receipt.status === 'REFUNDED' ? 'bg-slate-50 border-transparent opacity-60' : 'bg-white border-slate-100 hover:border-blue-500 shadow-sm'}`}
+                >
+                  <div className="text-left">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-xl">收據 #00{receipt.id}</span>
+                      {receipt.status === 'REFUNDED' && <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">已退款</span>}
+                    </div>
+                    <div className="text-slate-400 text-sm font-bold flex items-center gap-2 mt-1">
+                      <Calendar size={14}/> {new Date(receipt.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black font-mono">$ {receipt.total}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* 支付選擇彈窗 (對標 Ch 2.5) */}
-      {showPayModal && (
+      {/* 單據詳情與退款彈窗 */}
+      {selectedReceipt && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-xl rounded-[50px] shadow-2xl p-10 animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-10">
-              <h3 className="text-3xl font-black italic">選擇結帳方式</h3>
-              <button onClick={() => setShowPayModal(false)} className="bg-slate-100 p-3 rounded-full"><X/></button>
+          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-2xl font-black">收據詳情 #00{selectedReceipt.id}</h3>
+              <button onClick={() => setSelectedReceipt(null)} className="p-2 bg-white rounded-full shadow-sm"><X size={24}/></button>
             </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <button onClick={() => processPayment('現金')} className="flex items-center p-8 bg-green-50 border-2 border-green-100 rounded-[32px] hover:border-green-500 transition-all group">
-                <div className="bg-green-500 p-4 rounded-2xl text-white mr-6 group-hover:scale-110 transition-transform"><Banknote size={32}/></div>
-                <div className="text-left"><div className="text-2xl font-black text-green-900">現金支付</div><div className="text-green-600 font-bold font-mono">CASH</div></div>
-                <ChevronRight className="ml-auto text-green-300" />
-              </button>
-
-              <button onClick={() => processPayment('信用卡')} className="flex items-center p-8 bg-blue-50 border-2 border-blue-100 rounded-[32px] hover:border-blue-500 transition-all group">
-                <div className="bg-blue-500 p-4 rounded-2xl text-white mr-6 group-hover:scale-110 transition-transform"><CreditCard size={32}/></div>
-                <div className="text-left"><div className="text-2xl font-black text-blue-900">信用卡 / 簽帳卡</div><div className="text-blue-600 font-bold font-mono">CARD</div></div>
-                <ChevronRight className="ml-auto text-blue-300" />
-              </button>
-
-              <button onClick={() => processPayment('行動支付')} className="flex items-center p-8 bg-purple-50 border-2 border-purple-100 rounded-[32px] hover:border-purple-500 transition-all group">
-                <div className="bg-purple-500 p-4 rounded-2xl text-white mr-6 group-hover:scale-110 transition-transform"><Smartphone size={32}/></div>
-                <div className="text-left"><div className="text-2xl font-black text-purple-900">行動支付 / 錢包</div><div className="text-purple-600 font-bold font-mono">MOBILE</div></div>
-                <ChevronRight className="ml-auto text-purple-300" />
-              </button>
+            <div className="p-8 space-y-4 max-h-[50vh] overflow-y-auto">
+              {selectedReceipt.items.map((item, i) => (
+                <div key={i} className="flex justify-between font-bold text-lg">
+                  <span>{item.name} x{item.qty}</span>
+                  <span className="font-mono">$ {item.price * item.qty}</span>
+                </div>
+              ))}
+              <div className="border-t pt-4 mt-6">
+                <div className="flex justify-between text-2xl font-black">
+                  <span>實收總額</span>
+                  <span className="text-blue-600">$ {selectedReceipt.total}</span>
+                </div>
+                <div className="text-slate-400 text-sm mt-1 font-bold">支付方式：{selectedReceipt.paymentMethod}</div>
+              </div>
             </div>
-            
-            <div className="mt-10 text-center font-black text-slate-400 text-xl tracking-widest">應收金額: $ {total}</div>
+            <div className="p-8 bg-slate-50">
+              {selectedReceipt.status !== 'REFUNDED' ? (
+                <button 
+                  onClick={() => handleRefund(selectedReceipt)}
+                  className="w-full py-5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-red-500/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <RotateCcw size={24} /> 執行退款
+                </button>
+              ) : (
+                <div className="w-full py-5 bg-slate-200 text-slate-400 rounded-2xl font-black text-xl text-center cursor-not-allowed">此單已完成退款</div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {isCheckedOut && (
         <div className="fixed inset-0 bg-blue-600 flex flex-col items-center justify-center z-[100] text-white">
-          <CheckCircle size={120} className="mb-6 animate-bounce" />
-          <h1 className="text-5xl font-black mb-10 text-center">交易已完成！<br/><span className="text-2xl opacity-70">報表已更新支付分流</span></h1>
-          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl shadow-2xl">開始下一筆</button>
+          <CheckCircle size={100} className="mb-6 animate-bounce" />
+          <h1 className="text-5xl font-black mb-10">交易完成</h1>
+          <button onClick={() => setIsCheckedOut(false)} className="px-16 py-5 bg-white text-blue-600 rounded-3xl font-black text-2xl">下一筆</button>
         </div>
       )}
     </div>
